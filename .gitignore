@@ -1,35 +1,132 @@
-# Python cache
+# Python cache and bytecode
 __pycache__/
 *.py[cod]
+*$py.class
 *.pyo
 *.pyd
 
-# Virtual environments
+# C extensions
+*.so
+
+# Packaging and build artifacts
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# PyInstaller
+*.manifest
+*.spec
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+.pytest_cache/
+cover/
+
+# Translations
+*.mo
+*.pot
+
+# Databases
+local_settings.py
+db.sqlite3
+db.sqlite3-journal
+
+# Flask / Django artifacts
+instance/
+.webassets-cache
+
+# Scrapy
+.scrapy
+
+# Sphinx documentation
+docs/_build/
+
+# PyBuilder
+.pybuilder/
+target/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# IPython
+profile_default/
+ipython_config.py
+
+# Environment files
+.env
+.env.local
 .venv/
 venv/
 ENV/
+env/
+env.bak/
+venv.bak/
+
+# Poetry / Pipenv / pdm
+.pdm.toml
+
+# PEP 582
+__pypackages__/
+
+# Celery
+celerybeat-schedule
+celerybeat.pid
+
+# IDE settings
+.vscode/
+.idea/
+.spyderproject
+.spyproject
+.ropeproject
+
+# Type checker caches
+.mypy_cache/
+.dmypy.json
+dmypy.json
+.pyre/
+.pytype/
+cython_debug/
 
 # macOS
 .DS_Store
 
-# Node modules
+# Node modules and build output
 node_modules/
+/dist
+/build
 
 # Logs
 *.log
 
-# Local environment overrides
-.env
-.env.local
+# Project-specific overrides
 config.local.js
 
-# VSCode/intellij
-.vscode/
-.idea/
-
-# Artifact directories
-/dist
-/build
-
-# Python packaging
-*.egg-info/
