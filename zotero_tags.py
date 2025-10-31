@@ -37,7 +37,7 @@ except ImportError:  # pragma: no cover - fallback when tqdm is missing
 ZOTERO_USER_ID = "1595072"
 ZOTERO_API_KEY = ""
 LIBRARY_TYPE = "user"
-COLLECTION_KEY = "H4STB4UH"  # Set to None to process the entire library
+COLLECTION_KEY = ""  # Leave empty to process the entire library
 TARGET_ITEM_TYPE = "book"
 
 MAX_SEARCH_RESULTS = 5
@@ -46,6 +46,7 @@ MAX_TAGS = 6
 REPLACE_EXISTING_AI_TAGS = True
 AI_TAG_PREFIX = "[AI] "
 AI_TAG_TYPE = 0  # 0 = manual tag, 1 = automatic
+REMOVE_ALL_EXISTING_TAGS = True  # Set to True to clear every tag before adding new ones
 
 OLLAMA_URL = "http://localhost:11434"
 OLLAMA_MODEL = "minimax-m2:cloud"
@@ -53,11 +54,23 @@ OLLAMA_TIMEOUT = 60
 OLLAMA_TEMPERATURE = 0.2
 
 
-def fetch_collection_books(zotero_api, collection_key, item_type=TARGET_ITEM_TYPE):
-    """Return every item within the specified collection."""
-    return zotero_api.everything(
-        zotero_api.collection_items(collection_key, itemType=item_type)
-    )
+def fetch_target_items(zotero_api, collection_key=None):
+    """Return every item matching the target type within the selection."""
+    if collection_key:
+        raw_items = zotero_api.everything(zotero_api.collection_items(collection_key))
+        source_label = f"collection {collection_key}"
+    else:
+        raw_items = zotero_api.everything(zotero_api.items())
+        source_label = "library"
+
+    target_items = [
+        item
+        for item in raw_items
+        if item.get("data", {}).get("itemType") == TARGET_ITEM_TYPE
+    ]
+
+    print(f"Found {len(target_items)} {TARGET_ITEM_TYPE}s in {source_label}.")
+    return target_items
 
 
 def get_book_author(creators):
@@ -240,7 +253,9 @@ def update_item_tags(zotero_api, item, tags):
     data = item.get("data", {})
     existing_tags = data.get("tags") or []
 
-    if REPLACE_EXISTING_AI_TAGS:
+    if REMOVE_ALL_EXISTING_TAGS:
+        existing_tags = []
+    elif REPLACE_EXISTING_AI_TAGS:
         existing_tags = [
             tag_entry
             for tag_entry in existing_tags
@@ -318,12 +333,7 @@ def process_items(zotero_api, items):
 def main():
     zot = zotero.Zotero(ZOTERO_USER_ID, LIBRARY_TYPE, ZOTERO_API_KEY)
 
-    if COLLECTION_KEY:
-        items = fetch_collection_books(zot, COLLECTION_KEY)
-        print(f"Found {len(items)} items in collection {COLLECTION_KEY}.")
-    else:
-        items = zot.everything(zot.items(itemType=TARGET_ITEM_TYPE))
-        print(f"Found {len(items)} {TARGET_ITEM_TYPE}s in library.")
+    items = fetch_target_items(zot, COLLECTION_KEY)
 
     process_items(zot, items)
     print("All items processed.")

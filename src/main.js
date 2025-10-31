@@ -10,6 +10,7 @@ const grid = document.getElementById('libraryGrid');
 const searchInput = document.getElementById('searchInput');
 const collectionFilter = document.getElementById('collectionFilter');
 const itemTemplate = document.getElementById('itemCardTemplate');
+const statsEl = document.getElementById('libraryStats');
 const toastEl = document.getElementById('toast');
 const detailOverlay = document.getElementById('itemDetail');
 const detailTitleEl = detailOverlay?.querySelector('#detailTitle');
@@ -31,6 +32,30 @@ const detailCloseEls = Array.from(
   detailOverlay?.querySelectorAll('[data-close]') ?? []
 );
 
+const ITEM_BATCH_SIZE = 36;
+const scrollSentinel = document.createElement('div');
+scrollSentinel.id = 'scrollSentinel';
+scrollSentinel.className = 'scroll-sentinel';
+scrollSentinel.setAttribute('aria-hidden', 'true');
+
+let isLoadingMore = false;
+
+const BABEL_GLYPHS = 'abcdefghijklmnopqrstuvwxyz .,:';
+const BABEL_PHRASES = [
+  'Dentro de la Biblioteca de Babel ya existe cada libro posible.',
+  'Los hexágonos resuenan mientras buscamos el volumen que recuerde tus notas.',
+  'Las letras se barajan hasta que el sentido emerge del ruido.',
+  'Recopilando tus volúmenes desde Zotero.'
+];
+
+let babelIntervalId = null;
+let babelNextPhraseTimeoutId = null;
+const babelState = {
+  element: null,
+  phraseIndex: 0,
+  revealedCount: 0,
+};
+
 const state = {
   items: [],
   filtered: [],
@@ -39,6 +64,7 @@ const state = {
     q: '',
     collection: COLLECTION_KEY || 'all',
   },
+  visibleCount: 0,
 };
 
 const detailState = {
@@ -47,6 +73,99 @@ const detailState = {
   data: null,
   lastFocus: null,
 };
+
+const lazyObserver = new IntersectionObserver(handleLazyLoad, {
+  root: null,
+  rootMargin: '600px 0px',
+  threshold: 0.1,
+});
+
+function randomGlyph() {
+  return BABEL_GLYPHS.charAt(
+    Math.floor(Math.random() * BABEL_GLYPHS.length)
+  );
+}
+
+function buildScrambledPhrase(phrase, revealCount) {
+  return phrase
+    .split('')
+    .map((char, index) => {
+      if (char === ' ') return ' ';
+      if (index < revealCount) return char;
+      return randomGlyph();
+    })
+    .join('');
+}
+
+function advanceBabelAnimation() {
+  if (!babelState.element) return;
+  const phrase = BABEL_PHRASES[babelState.phraseIndex] ?? '';
+  if (!phrase) return;
+
+  const increment = Math.max(1, Math.floor(Math.random() * 3));
+  babelState.revealedCount = Math.min(
+    phrase.length,
+    babelState.revealedCount + increment
+  );
+
+  babelState.element.textContent = buildScrambledPhrase(
+    phrase,
+    babelState.revealedCount
+  );
+
+  if (babelState.revealedCount >= phrase.length) {
+    stopBabelAnimationLoop();
+    scheduleNextBabelPhrase();
+  }
+}
+
+function stopBabelAnimationLoop() {
+  if (babelIntervalId) {
+    window.clearInterval(babelIntervalId);
+    babelIntervalId = null;
+  }
+}
+
+function scheduleNextBabelPhrase() {
+  if (!babelState.element) return;
+  babelNextPhraseTimeoutId = window.setTimeout(() => {
+    babelState.phraseIndex = (babelState.phraseIndex + 1) % BABEL_PHRASES.length;
+    babelState.revealedCount = 0;
+    const phrase = BABEL_PHRASES[babelState.phraseIndex] ?? '';
+    babelState.element.textContent = buildScrambledPhrase(phrase, 0);
+    startBabelAnimationLoop();
+  }, 1400);
+}
+
+function startBabelAnimationLoop() {
+  stopBabelAnimationLoop();
+  babelIntervalId = window.setInterval(advanceBabelAnimation, 70);
+}
+
+function startBabelLoading() {
+  stopBabelLoading();
+  const element = document.getElementById('babelLoadingText');
+  if (!element) return;
+  babelState.element = element;
+  babelState.phraseIndex = 0;
+  babelState.revealedCount = 0;
+  const phrase = BABEL_PHRASES[0] ?? '';
+  element.textContent = buildScrambledPhrase(phrase, 0);
+  startBabelAnimationLoop();
+}
+
+function stopBabelLoading() {
+  stopBabelAnimationLoop();
+  if (babelNextPhraseTimeoutId) {
+    window.clearTimeout(babelNextPhraseTimeoutId);
+    babelNextPhraseTimeoutId = null;
+  }
+  if (babelState.element) {
+    babelState.element.textContent = '';
+  }
+  babelState.element = null;
+  babelState.revealedCount = 0;
+}
 
 function showToast(message, timeout = 3600) {
   if (!toastEl) return;
@@ -195,22 +314,154 @@ function createCard(item) {
 }
 
 function renderEmptyState() {
+  stopBabelLoading();
+  lazyObserver.unobserve(scrollSentinel);
+  if (scrollSentinel.isConnected) {
+    scrollSentinel.remove();
+  }
   grid.innerHTML =
-    '<p class="empty-state">No items match the current filters.</p>';
+    '<p class="empty-state">Ningún ítem coincide con los filtros seleccionados.</p>';
 }
 
-function renderItems(items) {
-  if (!items.length) {
-    renderEmptyState();
+function computeCollectionTotal() {
+  const { collection } = state.filters;
+  if (collection === 'all') {
+    return state.items.length;
+  }
+  return state.items.filter((item) => item.collections?.includes(collection)).length;
+}
+
+function getCollectionLabel() {
+  const { collection } = state.filters;
+  if (collection === 'all') {
+    return 'Todas las colecciones';
+  }
+  const match = state.collections.find((entry) => entry.key === collection);
+  return match ? `Colección: ${match.name}` : 'Colección seleccionada';
+}
+
+function createStatsChip(label, value) {
+  const chip = document.createElement('span');
+  chip.className = 'stats-chip';
+
+  const valueEl = document.createElement('strong');
+  valueEl.textContent = Number.isFinite(value) ? value.toLocaleString() : '0';
+  chip.appendChild(valueEl);
+  chip.appendChild(document.createTextNode(` ${label}`));
+
+  return chip;
+}
+
+function updateLibraryStats() {
+  if (!statsEl) return;
+
+  const visible = Math.max(0, Math.min(state.visibleCount, state.filtered.length));
+  const collectionTotal = computeCollectionTotal();
+  const matchingTotal = state.filtered.length;
+
+  statsEl.innerHTML = '';
+
+  const labelEl = document.createElement('span');
+  labelEl.className = 'stats-label';
+  labelEl.textContent = getCollectionLabel();
+  statsEl.appendChild(labelEl);
+
+  const countsWrapper = document.createElement('span');
+  countsWrapper.className = 'stats-counts';
+  countsWrapper.appendChild(createStatsChip('visibles', visible));
+
+  if (state.filters.q.trim()) {
+    countsWrapper.appendChild(createStatsChip('coincidencias', matchingTotal));
+  }
+
+  countsWrapper.appendChild(
+    createStatsChip('total en colección', collectionTotal)
+  );
+  statsEl.appendChild(countsWrapper);
+}
+
+function ensureSentinel() {
+  if (!scrollSentinel.isConnected) {
+    grid.appendChild(scrollSentinel);
+  }
+  lazyObserver.unobserve(scrollSentinel);
+  lazyObserver.observe(scrollSentinel);
+}
+
+function appendItems(startIndex, endIndex) {
+  if (startIndex >= endIndex) return;
+  const fragment = document.createDocumentFragment();
+  for (let index = startIndex; index < endIndex; index += 1) {
+    const item = state.filtered[index];
+    if (!item) continue;
+    fragment.appendChild(createCard(item));
+  }
+  if (scrollSentinel.isConnected) {
+    grid.insertBefore(fragment, scrollSentinel);
+  } else {
+    grid.appendChild(fragment);
+  }
+}
+
+function loadMoreItems() {
+  if (isLoadingMore) return;
+  if (state.visibleCount >= state.filtered.length) {
+    lazyObserver.unobserve(scrollSentinel);
+    updateLibraryStats();
     return;
   }
 
-  grid.innerHTML = '';
-  const fragment = document.createDocumentFragment();
-  items.forEach((item) => {
-    fragment.appendChild(createCard(item));
+  isLoadingMore = true;
+  const nextCount = Math.min(
+    state.visibleCount + ITEM_BATCH_SIZE,
+    state.filtered.length
+  );
+  appendItems(state.visibleCount, nextCount);
+  state.visibleCount = nextCount;
+  isLoadingMore = false;
+
+  if (state.visibleCount >= state.filtered.length) {
+    lazyObserver.unobserve(scrollSentinel);
+  }
+
+  updateLibraryStats();
+}
+
+function handleLazyLoad(entries) {
+  entries.forEach((entry) => {
+    if (entry.isIntersecting) {
+      loadMoreItems();
+    }
   });
-  grid.appendChild(fragment);
+}
+
+function renderItems(items) {
+  stopBabelLoading();
+  state.filtered = items;
+  state.visibleCount = 0;
+
+  if (!items.length) {
+    renderEmptyState();
+    updateLibraryStats();
+    return;
+  }
+  lazyObserver.unobserve(scrollSentinel);
+  if (scrollSentinel.isConnected) {
+    scrollSentinel.remove();
+  }
+  grid.innerHTML = '';
+
+  const initialCount = Math.min(ITEM_BATCH_SIZE, items.length);
+  appendItems(0, initialCount);
+  state.visibleCount = initialCount;
+
+  ensureSentinel();
+
+  if (state.visibleCount >= state.filtered.length) {
+    lazyObserver.unobserve(scrollSentinel);
+  }
+
+  updateLibraryStats();
 }
 
 function activateDetailTab(tabId = 'info') {
@@ -645,7 +896,16 @@ function populateCollectionFilter(collections) {
 }
 
 async function bootstrap() {
-  grid.innerHTML = '<p class="loading-state">Loading library…</p>';
+  grid.innerHTML = `
+    <div class="loading-state babel-loading" role="status" aria-live="polite">
+      <span class="glyph-stream" id="babelLoadingText" aria-hidden="true"></span>
+      <p class="loading-caption">
+        <em>La Biblioteca de Babel</em> recombina letras al azar hasta
+        reconstruir los volúmenes que buscas.
+      </p>
+    </div>
+  `;
+  startBabelLoading();
 
   try {
     const [items, collections] = await Promise.all([
@@ -664,6 +924,7 @@ async function bootstrap() {
     console.error(error);
     showToast(error.message || 'Failed to load Zotero items.');
     renderEmptyState();
+    updateLibraryStats();
   }
 }
 

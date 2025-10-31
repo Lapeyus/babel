@@ -33,7 +33,7 @@ function buildLibraryUrl(path) {
   return `${API_ROOT}/${LIBRARY_TYPE}/${LIBRARY_ID}${path}`;
 }
 
-async function fetchJSON(url) {
+async function fetchJSONWithHeaders(url) {
   const response = await fetch(url, {
     headers: buildAuthHeaders(),
     mode: 'cors',
@@ -44,36 +44,83 @@ async function fetchJSON(url) {
     throw new Error(`Zotero API error ${response.status}: ${text}`);
   }
 
-  return response.json();
+  const totalResultsHeader = response.headers.get('Total-Results');
+  const totalResults = totalResultsHeader ? Number(totalResultsHeader) : null;
+  const data = await response.json();
+  return { data, totalResults };
+}
+
+async function fetchJSON(url) {
+  const { data } = await fetchJSONWithHeaders(url);
+  return data;
 }
 
 export async function fetchTopLevelItems(limit = PAGE_SIZE) {
   const path = COLLECTION_KEY
     ? `/collections/${COLLECTION_KEY}/items/top`
     : '/items/top';
-  const url = new URL(buildLibraryUrl(path));
-  url.searchParams.set('format', 'json');
-  url.searchParams.set('include', 'data');
-  url.searchParams.set('limit', String(limit));
-  url.searchParams.set('sort', 'title');
-  url.searchParams.set('direction', 'asc');
+  const baseUrl = buildLibraryUrl(path);
+  const results = [];
+  const targetCount = Number.isFinite(limit) ? limit : Number.MAX_SAFE_INTEGER;
+  const pageSize = Math.min(100, targetCount);
 
-  const items = await fetchJSON(url.toString());
-  return items
-    .filter(
-      (item) =>
-        item.data?.itemType !== 'attachment' && item.data?.itemType !== 'note'
-    )
-    .map((item) => ({
-      key: item.key,
-      title: item.data?.title ?? '',
-      creators: item.data?.creators ?? [],
-      collections: item.data?.collections ?? [],
-      abstractNote: item.data?.abstractNote ?? '',
-      extra: item.data?.extra ?? '',
-      year: item.data?.date ?? '',
-      raw: item,
-    }));
+  let start = 0;
+  let totalResults = null;
+
+  while (results.length < targetCount) {
+    const requestLimit = Math.min(pageSize, targetCount - results.length);
+    const url = new URL(baseUrl);
+    url.searchParams.set('format', 'json');
+    url.searchParams.set('include', 'data');
+    url.searchParams.set('limit', String(requestLimit));
+    url.searchParams.set('sort', 'title');
+    url.searchParams.set('direction', 'asc');
+    if (start > 0) {
+      url.searchParams.set('start', String(start));
+    }
+
+    const { data, totalResults: reportedTotal } = await fetchJSONWithHeaders(
+      url.toString()
+    );
+
+    const normalized = data
+      .filter(
+        (item) =>
+          item.data?.itemType !== 'attachment' && item.data?.itemType !== 'note'
+      )
+      .map((item) => ({
+        key: item.key,
+        title: item.data?.title ?? '',
+        creators: item.data?.creators ?? [],
+        collections: item.data?.collections ?? [],
+        abstractNote: item.data?.abstractNote ?? '',
+        extra: item.data?.extra ?? '',
+        year: item.data?.date ?? '',
+        raw: item,
+      }));
+
+    results.push(...normalized);
+
+    if (reportedTotal != null) {
+      totalResults = reportedTotal;
+    }
+
+    const rawCount = Array.isArray(data) ? data.length : 0;
+    if (!rawCount || rawCount < requestLimit) {
+      break;
+    }
+
+    start += rawCount;
+
+    if (totalResults != null && results.length >= totalResults) {
+      break;
+    }
+  }
+
+  if (results.length > targetCount) {
+    return results.slice(0, targetCount);
+  }
+  return results;
 }
 
 export async function fetchCollections() {

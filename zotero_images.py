@@ -4,11 +4,27 @@ from requests import exceptions as requests_exceptions
 from bs4 import BeautifulSoup
 from duckduckgo_search import DDGS
 import imghdr
+try:
+    from tqdm import tqdm
+except ImportError:  # pragma: no cover - fallback cuando tqdm no está disponible
+    class _TqdmFallback:
+        def __init__(self, iterable, **_kwargs):
+            self._iterable = iterable
+
+        def __iter__(self):
+            for item in self._iterable:
+                yield item
+
+        def set_postfix_str(self, *_args, **_kwargs):
+            return None
+
+    def tqdm(iterable, **kwargs):  # type: ignore
+        return _TqdmFallback(iterable, **kwargs)
 
 ZOTERO_USER_ID = "1595072"
 ZOTERO_API_KEY = ""
 LIBRARY_TYPE = "user"
-COLLECTION_KEY = "H4STB4UH"
+COLLECTION_KEY = "" #"H4STB4UH"
 SEARCH_ENGINE = "bing"#"duckduckgo"
 MAX_SEARCH_RESULTS = 5
 COVER_ATTACHMENT_TITLE = "Book Cover (Web)"
@@ -165,27 +181,42 @@ def get_book_author(creators):
     return None
 
 
-def fetch_collection_books(zotero_api, collection_key, item_type=TARGET_ITEM_TYPE):
-    return zotero_api.everything(
-        zotero_api.collection_items(collection_key, itemType=item_type)
-    )
+def fetch_target_items(zotero_api, collection_key=None):
+    if collection_key:
+        raw_items = zotero_api.everything(zotero_api.collection_items(collection_key))
+        source_label = f"collection {collection_key}"
+    else:
+        raw_items = zotero_api.everything(zotero_api.items())
+        source_label = "library"
+
+    target_items = [
+        item
+        for item in raw_items
+        if item.get("data", {}).get("itemType") == TARGET_ITEM_TYPE
+    ]
+
+    print(f"Found {len(target_items)} {TARGET_ITEM_TYPE}s in {source_label}.")
+    return target_items
 
 
 def main():
     zot = zotero.Zotero(ZOTERO_USER_ID, LIBRARY_TYPE, ZOTERO_API_KEY)
-    if COLLECTION_KEY:
-        books = fetch_collection_books(zot, COLLECTION_KEY)
-        print(f"Found {len(books)} items in collection {COLLECTION_KEY}.")
-    else:
-        books = zot.everything(zot.items(itemType=TARGET_ITEM_TYPE))
-        print(f"Found {len(books)} {TARGET_ITEM_TYPE}s in library.")
+    books = fetch_target_items(zot, COLLECTION_KEY)
 
-    for book in books:
-        if book['data'].get('itemType') != TARGET_ITEM_TYPE:
-            continue
+    progress = tqdm(
+        books,
+        desc="Buscando portadas",
+        unit="libro",
+        total=len(books),
+    )
+
+    for book in progress:
         title = book['data'].get('title', 'Unknown Title')
         author = get_book_author(book['data'].get('creators', []))
         item_key = book['key']
+
+        if hasattr(progress, "set_postfix_str"):
+            progress.set_postfix_str(title[:60])
 
         print(f"Processing '{title}' (Key: {item_key})")
 

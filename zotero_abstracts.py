@@ -32,7 +32,7 @@ except ImportError:  # pragma: no cover - fallback when tqdm is missing
 ZOTERO_USER_ID = "1595072"
 ZOTERO_API_KEY = ""
 LIBRARY_TYPE = "user"
-COLLECTION_KEY = "H4STB4UH"  # Set to None to process the entire library
+COLLECTION_KEY = ""  # Leave empty to process the entire library
 TARGET_ITEM_TYPE = "book"
 
 MAX_SEARCH_RESULTS = 5
@@ -45,11 +45,23 @@ OLLAMA_TIMEOUT = 60
 OLLAMA_TEMPERATURE = 0.3
 
 
-def fetch_collection_books(zotero_api, collection_key, item_type=TARGET_ITEM_TYPE):
-    """Return every item within the specified collection."""
-    return zotero_api.everything(
-        zotero_api.collection_items(collection_key, itemType=item_type)
-    )
+def fetch_target_items(zotero_api, collection_key=None):
+    """Return every item matching the target type within the selection."""
+    if collection_key:
+        raw_items = zotero_api.everything(zotero_api.collection_items(collection_key))
+        source_label = f"collection {collection_key}"
+    else:
+        raw_items = zotero_api.everything(zotero_api.items())
+        source_label = "library"
+
+    target_items = [
+        item
+        for item in raw_items
+        if item.get("data", {}).get("itemType") == TARGET_ITEM_TYPE
+    ]
+
+    print(f"Found {len(target_items)} {TARGET_ITEM_TYPE}s in {source_label}.")
+    return target_items
 
 
 def get_book_author(creators):
@@ -207,12 +219,7 @@ def process_items(zotero_api, items):
 def main():
     zot = zotero.Zotero(ZOTERO_USER_ID, LIBRARY_TYPE, ZOTERO_API_KEY)
 
-    if COLLECTION_KEY:
-        items = fetch_collection_books(zot, COLLECTION_KEY)
-        print(f"Found {len(items)} items in collection {COLLECTION_KEY}.")
-    else:
-        items = zot.everything(zot.items(itemType=TARGET_ITEM_TYPE))
-        print(f"Found {len(items)} {TARGET_ITEM_TYPE}s in library.")
+    items = fetch_target_items(zot, COLLECTION_KEY)
 
     process_items(zot, items)
     print("All items processed.")
