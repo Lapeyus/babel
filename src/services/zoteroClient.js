@@ -174,9 +174,9 @@ async function fetchAttachmentsForItem(itemKey) {
     resolvedUrl:
       appendKeyToUrl(
         attachment.links?.enclosure?.href ??
-          (attachment.links?.self?.href
-            ? `${attachment.links.self.href}/file`
-            : '')
+        (attachment.links?.self?.href
+          ? `${attachment.links.self.href}/file`
+          : '')
       ) || attachment.data?.url || '',
   }));
 }
@@ -241,6 +241,21 @@ function chooseCoverUrl(attachments) {
   return null;
 }
 
+function extractB64CoverFromNotes(notes) {
+  // Look for a note with title "Book Cover (b64)"
+  for (const note of notes) {
+    const content = note.content || '';
+    if (content.includes('Book Cover (b64)')) {
+      // Extract the base64 data URI from the img src
+      const match = content.match(/src="(data:image\/[^"]+)"/);
+      if (match && match[1]) {
+        return match[1];
+      }
+    }
+  }
+  return null;
+}
+
 export async function attachCoverImages(items) {
   const chunks = [];
   for (let i = 0; i < items.length; i += ATTACHMENT_CONCURRENCY) {
@@ -252,12 +267,26 @@ export async function attachCoverImages(items) {
   for (const chunk of chunks) {
     const results = await Promise.all(
       chunk.map(async (item) => {
-        const attachments = await fetchAttachmentsForItem(item.key);
-        const coverUrl = chooseCoverUrl(attachments);
+        // Fetch both attachments and notes in parallel
+        const [attachments, notes] = await Promise.all([
+          fetchAttachmentsForItem(item.key),
+          fetchNotesForItem(item.key),
+        ]);
+
+        // Try to get b64 cover from notes first
+        const b64Cover = extractB64CoverFromNotes(notes);
+
+        // Fall back to web attachment if no b64 cover
+        const webCoverUrl = chooseCoverUrl(attachments);
+
+        // Prefer b64 cover over web URL
+        const coverUrl = b64Cover || webCoverUrl;
+
         return {
           ...item,
           attachments,
           coverUrl,
+          isB64Cover: !!b64Cover,
         };
       })
     );

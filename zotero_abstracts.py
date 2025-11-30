@@ -32,7 +32,7 @@ except ImportError:  # pragma: no cover - fallback when tqdm is missing
 ZOTERO_USER_ID = "1595072"
 ZOTERO_API_KEY = ""
 LIBRARY_TYPE = "user"
-COLLECTION_KEY = ""  # Leave empty to process the entire library
+COLLECTION_KEY = "F753DWXD"  # Leave empty to process the entire library
 TARGET_ITEM_TYPE = "book"
 
 MAX_SEARCH_RESULTS = 5

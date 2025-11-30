@@ -1,144 +1,101 @@
 <!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Zotero Frontend</title>
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap"
-      rel="stylesheet"
-    />
-    <link rel="stylesheet" href="./styles/main.css" />
-  </head>
-  <body>
-    <header class="app-header">
-      <div class="header-inner">
-        <h1>Babel</h1>
-        <div class="header-actions">
-          <input
-            type="search"
-            id="searchInput"
-            placeholder="Search title or creator…"
-            aria-label="Search items"
-          />
-          <select id="collectionFilter" aria-label="Filter by collection">
-            <option value="all">All Collections</option>
-          </select>
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Babel</title>
+
+  <!-- Favicons -->
+  <link rel="icon" type="image/png" sizes="32x32" href="./favicon-32.png" />
+  <link rel="icon" type="image/png" sizes="16x16" href="./favicon-16.png" />
+  <link rel="apple-touch-icon" sizes="180x180" href="./apple-touch-icon.png" />
+
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="./styles/main.css" />
+</head>
+
+<body>
+  <header class="app-header">
+    <div class="header-inner">
+      <h1>Babel</h1>
+      <div class="header-actions">
+        <input type="search" id="searchInput" placeholder="Search title or creator…" aria-label="Search items" />
+        <select id="collectionFilter" aria-label="Filter by collection">
+          <option value="all">All Collections</option>
+        </select>
+      </div>
+    </div>
+  </header>
+  <main class="content">
+    <div id="libraryStats" class="library-stats" aria-live="polite"></div>
+    <section id="libraryGrid" class="grid"></section>
+  </main>
+  <template id="itemCardTemplate">
+    <article class="item-card">
+      <div class="cover-wrapper" tabindex="0" role="button" aria-pressed="false">
+        <div class="cover-inner">
+          <div class="cover-face cover-front">
+            <img alt="" class="cover" loading="lazy" />
+            <div class="cover-fallback" aria-hidden="true"></div>
+          </div>
+          <div class="cover-face cover-back">
+            <div class="book-frame">
+              <p class="cover-abstract"></p>
+            </div>
+          </div>
         </div>
       </div>
-    </header>
-    <main class="content">
-      <div id="libraryStats" class="library-stats" aria-live="polite"></div>
-      <section id="libraryGrid" class="grid"></section>
-    </main>
-    <template id="itemCardTemplate">
-      <article class="item-card">
-        <div class="cover-wrapper" tabindex="0" role="button" aria-pressed="false">
-          <div class="cover-inner">
-            <div class="cover-face cover-front">
-              <img alt="" class="cover" loading="lazy" />
-              <div class="cover-fallback" aria-hidden="true"></div>
-            </div>
-            <div class="cover-face cover-back">
-              <div class="book-frame">
-                <p class="cover-abstract"></p>
-              </div>
-            </div>
-          </div>
+      <h2 class="title">
+        <button type="button" class="title-link"></button>
+      </h2>
+      <p class="creator"></p>
+    </article>
+  </template>
+  <div id="toast" role="alert" aria-live="polite"></div>
+  <div id="itemDetail" class="detail-overlay hidden" aria-hidden="true">
+    <div class="detail-backdrop" data-close></div>
+    <section class="detail-panel" role="dialog" aria-modal="true" aria-labelledby="detailTitle">
+      <header class="detail-header">
+        <div class="detail-header-text">
+          <p class="detail-item-type"></p>
+          <h2 id="detailTitle"></h2>
+          <p class="detail-creators"></p>
         </div>
-        <h2 class="title">
-          <button type="button" class="title-link"></button>
-        </h2>
-        <p class="creator"></p>
-      </article>
-    </template>
-    <div id="toast" role="alert" aria-live="polite"></div>
-    <div id="itemDetail" class="detail-overlay hidden" aria-hidden="true">
-      <div class="detail-backdrop" data-close></div>
-      <section
-        class="detail-panel"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="detailTitle"
-      >
-        <header class="detail-header">
-          <div class="detail-header-text">
-            <p class="detail-item-type"></p>
-            <h2 id="detailTitle"></h2>
-            <p class="detail-creators"></p>
-          </div>
-          <button
-            type="button"
-            class="detail-close"
-            data-close
-            aria-label="Close item details"
-          >
-            &times;
-          </button>
-        </header>
-        <p class="detail-meta"></p>
-        <nav class="detail-tabs" role="tablist">
-          <button role="tab" data-tab="info" aria-selected="true" tabindex="0">
-            Info
-          </button>
-          <button role="tab" data-tab="notes" aria-selected="false" tabindex="-1">
-            Notes
-          </button>
-          <button role="tab" data-tab="tags" aria-selected="false" tabindex="-1">
-            Tags
-          </button>
-          <button
-            role="tab"
-            data-tab="attachments"
-            aria-selected="false"
-            tabindex="-1"
-          >
-            Attachments
-          </button>
-          <button
-            role="tab"
-            data-tab="related"
-            aria-selected="false"
-            tabindex="-1"
-          >
-            Related
-          </button>
-        </nav>
-        <div class="detail-body">
-          <div class="detail-loading">Loading item…</div>
-          <section
-            class="detail-section"
-            data-panel="info"
-            role="tabpanel"
-          ></section>
-          <section
-            class="detail-section"
-            data-panel="notes"
-            role="tabpanel"
-            hidden
-          ></section>
-          <section
-            class="detail-section"
-            data-panel="tags"
-            role="tabpanel"
-            hidden
-          ></section>
-          <section
-            class="detail-section"
-            data-panel="attachments"
-            role="tabpanel"
-            hidden
-          ></section>
-          <section
-            class="detail-section"
-            data-panel="related"
-            role="tabpanel"
-            hidden
-          ></section>
-        </div>
-      </section>
-    </div>
-    <script type="module" src="./src/main.js"></script>
-  </body>
+        <button type="button" class="detail-close" data-close aria-label="Close item details">
+          &times;
+        </button>
+      </header>
+      <p class="detail-meta"></p>
+      <nav class="detail-tabs" role="tablist">
+        <button role="tab" data-tab="info" aria-selected="true" tabindex="0">
+          Info
+        </button>
+        <button role="tab" data-tab="notes" aria-selected="false" tabindex="-1">
+          Notes
+        </button>
+        <button role="tab" data-tab="tags" aria-selected="false" tabindex="-1">
+          Tags
+        </button>
+        <button role="tab" data-tab="attachments" aria-selected="false" tabindex="-1">
+          Attachments
+        </button>
+        <button role="tab" data-tab="related" aria-selected="false" tabindex="-1">
+          Related
+        </button>
+      </nav>
+      <div class="detail-body">
+        <div class="detail-loading">Loading item…</div>
+        <section class="detail-section" data-panel="info" role="tabpanel"></section>
+        <section class="detail-section" data-panel="notes" role="tabpanel" hidden></section>
+        <section class="detail-section" data-panel="tags" role="tabpanel" hidden></section>
+        <section class="detail-section" data-panel="attachments" role="tabpanel" hidden></section>
+        <section class="detail-section" data-panel="related" role="tabpanel" hidden></section>
+      </div>
+    </section>
+  </div>
+  <script type="module" src="./src/main.js"></script>
+</body>
+
 </html>

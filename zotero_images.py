@@ -3,7 +3,25 @@ import requests
 from requests import exceptions as requests_exceptions
 from bs4 import BeautifulSoup
 from duckduckgo_search import DDGS
-import imghdr
+import time
+
+# Custom image type detection (replaces deprecated imghdr)
+def detect_image_type(data):
+    """Detect image type from bytes by checking magic numbers"""
+    if not data:
+        return None
+    # Check common image formats by magic bytes
+    if data.startswith(b'\xff\xd8\xff'):
+        return 'jpeg'
+    elif data.startswith(b'\x89PNG\r\n\x1a\n'):
+        return 'png'
+    elif data.startswith(b'GIF87a') or data.startswith(b'GIF89a'):
+        return 'gif'
+    elif data.startswith(b'RIFF') and data[8:12] == b'WEBP':
+        return 'webp'
+    elif data.startswith(b'BM'):
+        return 'bmp'
+    return None
 try:
     from tqdm import tqdm
 except ImportError:  # pragma: no cover - fallback cuando tqdm no está disponible
@@ -24,12 +42,13 @@ except ImportError:  # pragma: no cover - fallback cuando tqdm no está disponib
 ZOTERO_USER_ID = "1595072"
 ZOTERO_API_KEY = ""
 LIBRARY_TYPE = "user"
-COLLECTION_KEY = "" #"H4STB4UH"
-SEARCH_ENGINE = "bing"#"duckduckgo"
+COLLECTION_KEY = "F753DWXD" #"H4STB4UH"
+SEARCH_ENGINE = "duckduckgo"  # "duckduckgo" or "google"
 MAX_SEARCH_RESULTS = 5
 COVER_ATTACHMENT_TITLE = "Book Cover (Web)"
 TARGET_ITEM_TYPE = "book"
 REQUEST_TIMEOUT = 8
+SEARCH_DELAY = 2  # Seconds to wait between searches to avoid rate limiting
 
 
 def sanitize_filename(filename):
@@ -75,7 +94,7 @@ def validate_image_url(url):
                 chunk = next(response.iter_content(1024))
             except StopIteration:
                 chunk = b""
-            if chunk and imghdr.what(None, chunk):
+            if chunk and detect_image_type(chunk):
                 return True
             return False
         return False
@@ -230,6 +249,9 @@ def main():
             add_linked_url_attachment(zot, item_key, cover_url)
         else:
             print(f"No cover found for '{title}'.")
+        
+        # Add delay to avoid rate limiting
+        time.sleep(SEARCH_DELAY)
 
     print("All books processed.")
 
