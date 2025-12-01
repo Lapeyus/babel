@@ -55,10 +55,7 @@ async function fetchJSON(url) {
   return data;
 }
 
-export async function fetchTopLevelItems(limit = PAGE_SIZE) {
-  const path = COLLECTION_KEY
-    ? `/collections/${COLLECTION_KEY}/items/top`
-    : '/items/top';
+async function fetchPagedItems(path, limit) {
   const baseUrl = buildLibraryUrl(path);
   const results = [];
   const targetCount = Number.isFinite(limit) ? limit : Number.MAX_SAFE_INTEGER;
@@ -121,6 +118,45 @@ export async function fetchTopLevelItems(limit = PAGE_SIZE) {
     return results.slice(0, targetCount);
   }
   return results;
+}
+
+export async function fetchTopLevelItems(limit = PAGE_SIZE) {
+  if (COLLECTION_KEY) {
+    const collectionKeys = [COLLECTION_KEY];
+
+    // Fetch subcollections to include their items
+    try {
+      const subsUrl = new URL(
+        buildLibraryUrl(`/collections/${COLLECTION_KEY}/collections`)
+      );
+      subsUrl.searchParams.set('format', 'json');
+      const subsData = await fetchJSON(subsUrl.toString());
+      if (Array.isArray(subsData)) {
+        collectionKeys.push(...subsData.map((c) => c.key));
+      }
+    } catch (error) {
+      console.warn('Failed to fetch subcollections for item retrieval', error);
+    }
+
+    // Fetch items from all relevant collections in parallel
+    const resultsArrays = await Promise.all(
+      collectionKeys.map((key) =>
+        fetchPagedItems(`/collections/${key}/items/top`, limit)
+      )
+    );
+
+    // Deduplicate items by key
+    const uniqueItems = new Map();
+    resultsArrays.flat().forEach((item) => {
+      if (!uniqueItems.has(item.key)) {
+        uniqueItems.set(item.key, item);
+      }
+    });
+
+    return Array.from(uniqueItems.values());
+  }
+
+  return fetchPagedItems('/items/top', limit);
 }
 
 export async function fetchCollections() {
