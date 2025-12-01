@@ -126,16 +126,39 @@ export async function fetchTopLevelItems(limit = PAGE_SIZE) {
 export async function fetchCollections() {
   if (COLLECTION_KEY) {
     try {
-      const url = new URL(buildLibraryUrl(`/collections/${COLLECTION_KEY}`));
-      url.searchParams.set('format', 'json');
-      url.searchParams.set('include', 'data');
-      const collection = await fetchJSON(url.toString());
-      return [
-        {
-          key: collection.key,
-          name: collection.data?.name ?? 'Untitled',
-        },
-      ];
+      // Fetch root collection details
+      const rootUrl = new URL(buildLibraryUrl(`/collections/${COLLECTION_KEY}`));
+      rootUrl.searchParams.set('format', 'json');
+      rootUrl.searchParams.set('include', 'data');
+
+      // Fetch subcollections
+      const subsUrl = new URL(
+        buildLibraryUrl(`/collections/${COLLECTION_KEY}/collections`)
+      );
+      subsUrl.searchParams.set('format', 'json');
+      subsUrl.searchParams.set('include', 'data');
+      subsUrl.searchParams.set('limit', '100');
+      subsUrl.searchParams.set('sort', 'title');
+
+      const [rootData, subsData] = await Promise.all([
+        fetchJSON(rootUrl.toString()),
+        fetchJSON(subsUrl.toString()),
+      ]);
+
+      const rootCollection = {
+        key: rootData.key,
+        name: rootData.data?.name ?? 'Untitled',
+      };
+
+      const subCollections = (Array.isArray(subsData) ? subsData : []).map(
+        (c) => ({
+          key: c.key,
+          name: c.data?.name ?? 'Untitled',
+        })
+      );
+
+      // Return root (as "All") + subcollections
+      return [rootCollection, ...subCollections];
     } catch (error) {
       console.warn('Failed to load collection metadata', error);
       return [];
@@ -146,6 +169,7 @@ export async function fetchCollections() {
   url.searchParams.set('format', 'json');
   url.searchParams.set('include', 'data');
   url.searchParams.set('limit', '200');
+  url.searchParams.set('sort', 'title');
 
   const collections = await fetchJSON(url.toString());
   return collections.map((collection) => ({

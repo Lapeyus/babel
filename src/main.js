@@ -878,6 +878,16 @@ function applyFilters() {
 
 function populateCollectionFilter(collections) {
   if (!collections.length) return;
+
+  collectionFilter.innerHTML = '';
+
+  if (!COLLECTION_KEY) {
+    const allOption = document.createElement('option');
+    allOption.value = 'all';
+    allOption.textContent = 'All Collections';
+    collectionFilter.appendChild(allOption);
+  }
+
   const fragment = document.createDocumentFragment();
   collections.forEach((collection) => {
     const option = document.createElement('option');
@@ -890,8 +900,14 @@ function populateCollectionFilter(collections) {
   if (COLLECTION_KEY) {
     collectionFilter.value = COLLECTION_KEY;
     state.filters.collection = COLLECTION_KEY;
-    collectionFilter.disabled = true;
-    collectionFilter.title = 'Collection locked via configuration';
+
+    if (collections.length > 1) {
+      collectionFilter.disabled = false;
+      collectionFilter.title = 'Filter by subcollection';
+    } else {
+      collectionFilter.disabled = true;
+      collectionFilter.title = 'Collection locked via configuration';
+    }
   }
 }
 

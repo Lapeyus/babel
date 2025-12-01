@@ -185,6 +185,11 @@ def main():
         # Check if already has b64 note
         existing_note = get_b64_note(zot, item_key)
         
+        if existing_note:
+            print(f"    ✓ Already has b64 note, skipping.")
+            stats["already_has_b64"] += 1
+            continue
+
         # Get the web cover URL
         cover_url = get_cover_attachment(zot, item_key)
         
@@ -223,6 +228,7 @@ def main():
     print("SUMMARY")
     print("=" * 70)
     print(f"Total books processed:     {len(books)}")
+    print(f"Already has b64 note:      {stats['already_has_b64']}")
     print(f"No web cover found:        {stats['no_web_cover']}")
     print(f"Download failed:           {stats['download_failed']}")
     print(f"B64 notes created:         {stats['created']}")
