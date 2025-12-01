@@ -159,9 +159,24 @@ export async function fetchTopLevelItems(limit = PAGE_SIZE) {
   return fetchPagedItems('/items/top', limit);
 }
 
+async function getCollectionItemCount(collectionKey) {
+  const url = new URL(buildLibraryUrl(`/collections/${collectionKey}/items/top`));
+  url.searchParams.set('format', 'json');
+  url.searchParams.set('limit', '1');
+
+  try {
+    const { totalResults } = await fetchJSONWithHeaders(url.toString());
+    return totalResults ?? 0;
+  } catch (error) {
+    console.warn(`Failed to get item count for collection ${collectionKey}`, error);
+    return 0;
+  }
+}
+
 export async function fetchCollections() {
   if (COLLECTION_KEY) {
     try {
+      console.log(`Fetching info for collection ${COLLECTION_KEY}...`);
       // Fetch root collection details
       const rootUrl = new URL(buildLibraryUrl(`/collections/${COLLECTION_KEY}`));
       rootUrl.searchParams.set('format', 'json');
@@ -181,6 +196,9 @@ export async function fetchCollections() {
         fetchJSON(subsUrl.toString()),
       ]);
 
+      console.log('Root collection data:', rootData);
+      console.log('Subcollections data:', subsData);
+
       const rootCollection = {
         key: rootData.key,
         name: rootData.data?.name ?? 'Untitled',
@@ -192,6 +210,8 @@ export async function fetchCollections() {
           name: c.data?.name ?? 'Untitled',
         })
       );
+
+      console.log('Parsed subcollections:', subCollections);
 
       // Return root (as "All") + subcollections
       return [rootCollection, ...subCollections];
@@ -212,6 +232,28 @@ export async function fetchCollections() {
     key: collection.key,
     name: collection.data?.name ?? 'Untitled',
   }));
+}
+
+export async function findFirstNonEmptyCollection(collections) {
+  if (!collections.length) return null;
+
+  // Check root collection first (collections[0])
+  const rootCount = await getCollectionItemCount(collections[0].key);
+  if (rootCount > 0) {
+    return collections[0].key;
+  }
+
+  // If root is empty, find first non-empty sub-collection
+  for (let i = 1; i < collections.length; i++) {
+    const count = await getCollectionItemCount(collections[i].key);
+    if (count > 0) {
+      console.log(`Found non-empty collection: ${collections[i].name} (${count} items)`);
+      return collections[i].key;
+    }
+  }
+
+  // If all are empty, return root
+  return collections[0]?.key ?? null;
 }
 
 async function fetchAttachmentsForItem(itemKey) {

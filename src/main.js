@@ -3,6 +3,7 @@ import {
   fetchCollections,
   attachCoverImages,
   fetchItemBundle,
+  findFirstNonEmptyCollection,
 } from './services/zoteroClient.js';
 import { COLLECTION_KEY } from './config.js';
 
@@ -898,8 +899,8 @@ function populateCollectionFilter(collections) {
   collectionFilter.appendChild(fragment);
 
   if (COLLECTION_KEY) {
-    collectionFilter.value = COLLECTION_KEY;
-    state.filters.collection = COLLECTION_KEY;
+    // Use the current filter state, which may have been auto-selected
+    collectionFilter.value = state.filters.collection;
 
     if (collections.length > 1) {
       collectionFilter.disabled = false;
@@ -933,6 +934,15 @@ async function bootstrap() {
 
     state.items = itemsWithCovers;
     state.collections = collections;
+
+    // Auto-select first non-empty collection if COLLECTION_KEY is set
+    if (COLLECTION_KEY && collections.length > 1) {
+      const nonEmptyKey = await findFirstNonEmptyCollection(collections);
+      if (nonEmptyKey && nonEmptyKey !== COLLECTION_KEY) {
+        state.filters.collection = nonEmptyKey;
+        console.log(`Auto-selected non-empty collection: ${nonEmptyKey}`);
+      }
+    }
 
     populateCollectionFilter(collections);
     applyFilters();
