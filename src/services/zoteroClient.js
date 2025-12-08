@@ -5,6 +5,7 @@ import {
   PAGE_SIZE,
   ATTACHMENT_CONCURRENCY,
   COLLECTION_KEY,
+  WEBDAV_BASE_URL,
 } from '../config.js';
 
 const API_ROOT = 'https://api.zotero.org';
@@ -265,23 +266,43 @@ async function fetchAttachmentsForItem(itemKey) {
   url.searchParams.set('limit', '50');
 
   const attachments = await fetchJSON(url.toString());
-  return attachments.map((attachment) => ({
-    key: attachment.key,
-    parentItem: attachment.data?.parentItem ?? '',
-    contentType: attachment.data?.contentType ?? '',
-    fileName: attachment.data?.filename ?? '',
-    title: attachment.data?.title ?? '',
-    url: attachment.data?.url ?? '',
-    linkMode: attachment.data?.linkMode ?? '',
-    links: attachment.links ?? {},
-    resolvedUrl:
-      appendKeyToUrl(
+  return attachments.map((attachment) => {
+    const attachmentKey = attachment.key;
+    const fileName = attachment.data?.filename ?? '';
+    const linkMode = attachment.data?.linkMode ?? '';
+
+    // Build the resolved URL based on configuration
+    let resolvedUrl = '';
+
+    // If WebDAV is configured and this is a stored file (not a linked URL)
+    if (WEBDAV_BASE_URL && linkMode !== 'linked_url') {
+      // Zotero stores files on WebDAV as {key}.zip
+      const webdavBase = WEBDAV_BASE_URL.endsWith('/')
+        ? WEBDAV_BASE_URL
+        : `${WEBDAV_BASE_URL}/`;
+      resolvedUrl = `${webdavBase}${attachmentKey}.zip`;
+    } else {
+      // Fall back to Zotero API or linked URL
+      resolvedUrl = appendKeyToUrl(
         attachment.links?.enclosure?.href ??
         (attachment.links?.self?.href
           ? `${attachment.links.self.href}/file`
           : '')
-      ) || attachment.data?.url || '',
-  }));
+      ) || attachment.data?.url || '';
+    }
+
+    return {
+      key: attachmentKey,
+      parentItem: attachment.data?.parentItem ?? '',
+      contentType: attachment.data?.contentType ?? '',
+      fileName,
+      title: attachment.data?.title ?? '',
+      url: attachment.data?.url ?? '',
+      linkMode,
+      links: attachment.links ?? {},
+      resolvedUrl,
+    };
+  });
 }
 
 function appendKeyToUrl(href) {
