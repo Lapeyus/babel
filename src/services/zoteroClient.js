@@ -91,6 +91,7 @@ async function fetchPagedItems(path, limit) {
         creators: item.data?.creators ?? [],
         collections: item.data?.collections ?? [],
         abstractNote: item.data?.abstractNote ?? '',
+        tags: item.data?.tags ?? [],
         extra: item.data?.extra ?? '',
         year: item.data?.date ?? '',
         raw: item,

@@ -30,9 +30,9 @@ except ImportError:  # pragma: no cover - fallback when tqdm is missing
         return _TqdmFallback(iterable, **kwargs)
 
 ZOTERO_USER_ID = "1595072"
-ZOTERO_API_KEY = ""
+ZOTERO_API_KEY = "mB0Blp4yjVIuX17QBYLsswIM"
 LIBRARY_TYPE = "user"
-COLLECTION_KEY = "F753DWXD"  # Leave empty to process the entire library
+COLLECTION_KEY = "6B5XG7TP"  # Leave empty to process the entire library
 TARGET_ITEM_TYPE = "book"
 
 MAX_SEARCH_RESULTS = 5
@@ -45,11 +45,34 @@ OLLAMA_TIMEOUT = 60
 OLLAMA_TEMPERATURE = 0.3
 
 
+def fetch_items_recursively(zotero_api, collection_key):
+    """Fetch items from a collection and its subcollections."""
+    all_items = []
+    
+    # Fetch items in current collection
+    try:
+        items = zotero_api.everything(zotero_api.collection_items(collection_key))
+        all_items.extend(items)
+    except Exception as e:
+        print(f"Error fetching items from {collection_key}: {e}")
+
+    # Fetch subcollections
+    try:
+        subcollections = zotero_api.collections_sub(collection_key)
+        for sub in subcollections:
+            sub_key = sub['key']
+            # print(f"Found subcollection: {sub['data']['name']} ({sub_key})")
+            all_items.extend(fetch_items_recursively(zotero_api, sub_key))
+    except Exception as e:
+        print(f"Error fetching subcollections from {collection_key}: {e}")
+        
+    return all_items
+
 def fetch_target_items(zotero_api, collection_key=None):
-    """Return every item matching the target type within the selection."""
+    """Return every item matching the target type within the selection (recursive)."""
     if collection_key:
-        raw_items = zotero_api.everything(zotero_api.collection_items(collection_key))
-        source_label = f"collection {collection_key}"
+        raw_items = fetch_items_recursively(zotero_api, collection_key)
+        source_label = f"collection {collection_key} and subcollections"
     else:
         raw_items = zotero_api.everything(zotero_api.items())
         source_label = "library"
@@ -59,9 +82,19 @@ def fetch_target_items(zotero_api, collection_key=None):
         for item in raw_items
         if item.get("data", {}).get("itemType") == TARGET_ITEM_TYPE
     ]
+    
+    # Deduplicate by key (in case item is in multiple subcollections?)
+    # Zotero items have unique keys.
+    seen_keys = set()
+    unique_items = []
+    for item in target_items:
+        key = item['key']
+        if key not in seen_keys:
+            seen_keys.add(key)
+            unique_items.append(item)
 
-    print(f"Found {len(target_items)} {TARGET_ITEM_TYPE}s in {source_label}.")
-    return target_items
+    print(f"Found {len(unique_items)} {TARGET_ITEM_TYPE}s in {source_label}.")
+    return unique_items
 
 
 def get_book_author(creators):
@@ -110,17 +143,53 @@ def build_abstract_prompt(title, author, snippets):
     """Create the inference prompt for the Ollama model."""
     header = [
         "You are a research assistant creating an academic-style abstract.",
-        f"Write an abstract for the book '{title}'.",
+        f"Write an abstract in SPANISH for the book '{title}'.",
     ]
     if author:
         header.append(f"The author is {author}.")
     header.append(
-        "Use only the supplied context, highlight key themes, and keep the abstract under 160 words. Do not fabricate information. Do not reference the context directly. Do not add titles like 'Abstract' or 'Summary'. Keep the items original language."
+        "Use only the supplied context, highlight key themes, and keep the abstract under 160 words. Do not fabricate information. Do not reference the context directly. Do not add titles like 'Abstract' or 'Summary'. Output ONLY the Spanish text."
     )
 
     context_block = "\n".join(f"- {snippet}" for snippet in snippets)
-    prompt = " ".join(header) + "\n\nContext:\n" + context_block + "\n\nAbstract:"
+    prompt = " ".join(header) + "\n\nContext:\n" + context_block + "\n\nAbstract (in Spanish):"
     return prompt
+
+
+def check_and_translate_abstract(existing_abstract, title, author, snippets):
+    """Check if abstract is in Spanish, if not rewrite it."""
+    context_block = "\n".join(f"- {snippet}" for snippet in snippets)
+    prompt = (
+        f"Analyze the following abstract for the book '{title}'.\n"
+        f"Current Abstract: {existing_abstract}\n\n"
+        f"Task: Check if the Current Abstract is in Spanish.\n"
+        f"1. If it is in Spanish, return it exactly as is.\n"
+        f"2. If it is NOT in Spanish, write a new abstract in Spanish based on the Context below.\n"
+        f"Output ONLY the final Spanish abstract.\n\n"
+        f"Context:\n{context_block}\n\n"
+        f"Spanish Abstract:"
+    )
+    
+    payload = {
+        "model": OLLAMA_MODEL,
+        "prompt": prompt,
+        "stream": False,
+        "options": {"temperature": OLLAMA_TEMPERATURE},
+    }
+
+    try:
+        response = requests.post(
+            f"{OLLAMA_URL}/api/generate",
+            json=payload,
+            timeout=OLLAMA_TIMEOUT,
+        )
+        response.raise_for_status()
+        result = response.json()
+        abstract = (result.get("response") or result.get("text") or "").strip()
+        return abstract
+    except Exception as e:
+        print(f"Translation check failed: {e}")
+        return existing_abstract
 
 
 def generate_abstract_with_ollama(title, author, snippets):
@@ -199,11 +268,22 @@ def process_items(zotero_api, items):
 
         print(f"Processing '{title}' (Key: {item.get('key')})")
 
-        if existing and not OVERWRITE_EXISTING_ABSTRACTS:
-            print(f"Abstract already present for '{title}', skipping.")
+        snippets = search_book_information(title, author)
+        
+        if existing:
+            if not snippets:
+                print(f"No snippets to verify language for '{title}', skipping.")
+                continue
+            
+            # Check if existing is Spanish
+            new_abstract = check_and_translate_abstract(existing, title, author, snippets)
+            if new_abstract and new_abstract != existing:
+                print(f"Rewriting abstract in Spanish for '{title}'.")
+                update_item_abstract(zotero_api, item, new_abstract)
+            else:
+                print(f"Abstract already in Spanish (or check failed) for '{title}'.")
             continue
 
-        snippets = search_book_information(title, author)
         if not snippets:
             print(f"No search snippets for '{title}', skipping.")
             continue

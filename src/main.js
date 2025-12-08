@@ -264,6 +264,12 @@ function buildMetaString(data = {}) {
   return parts.join(' • ');
 }
 
+function getOriginalYear(extra) {
+  if (!extra) return null;
+  const match = extra.match(/original-date:\s*(\d{4})/i);
+  return match ? match[1] : null;
+}
+
 function createCard(item) {
   const fragment = itemTemplate.content.cloneNode(true);
   const titleButton = fragment.querySelector('.title-link');
@@ -273,7 +279,9 @@ function createCard(item) {
   const coverFallback = fragment.querySelector('.cover-fallback');
   const abstractEl = fragment.querySelector('.cover-abstract');
 
-  titleButton.textContent = item.title || 'Untitled';
+  const originalYear = getOriginalYear(item.extra);
+  const titleText = item.title || 'Untitled';
+  titleButton.textContent = originalYear ? `${titleText} (${originalYear})` : titleText;
   titleButton.setAttribute(
     'aria-label',
     `Open details for ${item.title || 'Untitled'}`
@@ -281,8 +289,10 @@ function createCard(item) {
   titleButton.addEventListener('click', () => openItemDetail(item));
 
   creatorEl.textContent = formatCreators(item.creators);
-  const abstractText = item.abstractNote?.trim();
-  abstractEl.textContent = abstractText || 'No abstract available.';
+
+  const tags = item.tags || [];
+  const tagsText = tags.map(t => t.tag).join(', ');
+  abstractEl.textContent = tagsText || 'No tags available.';
 
   if (item.coverUrl) {
     coverImg.src = item.coverUrl;
