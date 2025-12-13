@@ -26,12 +26,13 @@ except ImportError:
 load_dotenv()
 
 # Configuration
-ZOTERO_USER_ID = os.getenv("ZOTERO_USER_ID")
-ZOTERO_API_KEY = os.getenv("ZOTERO_API_KEY")
-COLLECTION_KEY = os.getenv("COLLECTION_KEY")
+# Configuration
+ZOTERO_USER_ID = os.getenv("ZOTERO_USER_ID", "").strip()
+ZOTERO_API_KEY = os.getenv("ZOTERO_API_KEY", "").strip()
+COLLECTION_KEY = os.getenv("COLLECTION_KEY", "").strip() or None
 
-TARGET_ITEM_TYPE = os.getenv("TARGET_ITEM_TYPE", "book")
-LIBRARY_TYPE = os.getenv("LIBRARY_TYPE", "user")
+TARGET_ITEM_TYPE = os.getenv("TARGET_ITEM_TYPE", "").strip() or "book"
+LIBRARY_TYPE = os.getenv("LIBRARY_TYPE", "").strip() or "user"
 
 
 COVER_NOTE_TITLE = "Book Cover (b64)"
