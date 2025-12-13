@@ -48,10 +48,12 @@ ZOTERO_USER_ID = os.getenv("ZOTERO_USER_ID")
 ZOTERO_API_KEY = os.getenv("ZOTERO_API_KEY")
 LIBRARY_TYPE = os.getenv("LIBRARY_TYPE")
 COLLECTION_KEY = os.getenv("COLLECTION_KEY")
+TARGET_ITEM_TYPE = os.getenv("TARGET_ITEM_TYPE")
+
+
 SEARCH_ENGINE = "duckduckgo"  # "duckduckgo" or "google"
 MAX_SEARCH_RESULTS = 5
 COVER_ATTACHMENT_TITLE = "Book Cover (Web)"
-TARGET_ITEM_TYPE = os.getenv("TARGET_ITEM_TYPE")
 REQUEST_TIMEOUT = 8
 SEARCH_DELAY = 2  # Seconds to wait between searches to avoid rate limiting
 

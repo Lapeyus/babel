@@ -12,6 +12,8 @@ ZOTERO_API_KEY = os.getenv("ZOTERO_API_KEY")
 LIBRARY_TYPE = os.getenv("LIBRARY_TYPE")
 COLLECTION_KEY = os.getenv("COLLECTION_KEY")
 TARGET_ITEM_TYPE = os.getenv("TARGET_ITEM_TYPE")
+
+# Search Configuration
 REQUEST_TIMEOUT = 8
 SEARCH_DELAY = 1  # Seconds between API calls
 

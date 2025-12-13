@@ -22,6 +22,17 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
+      - name: Inject Configuration
+        env:
+          LIBRARY_ID: ${{ secrets.ZOTERO_USER_ID }}
+          API_KEY: ${{ secrets.ZOTERO_API_KEY }}
+          COLLECTION_KEY: ${{ secrets.COLLECTION_KEY }}
+        run: |
+          sed -i "s|export const LIBRARY_ID = '.*';|export const LIBRARY_ID = '$LIBRARY_ID';|" src/config.js
+          sed -i "s|export const API_KEY = '.*';|export const API_KEY = '$API_KEY';|" src/config.js
+          sed -i "s|export const COLLECTION_KEY = \".*\";|export const COLLECTION_KEY = \"$COLLECTION_KEY\";|" src/config.js
+          sed -i "s|export const COLLECTION_KEY = '.*';|export const COLLECTION_KEY = '$COLLECTION_KEY';|" src/config.js
+
       - name: Setup Pages
         uses: actions/configure-pages@v4
 

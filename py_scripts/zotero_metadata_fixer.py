@@ -30,15 +30,15 @@ ZOTERO_API_KEY = os.getenv("ZOTERO_API_KEY")
 LIBRARY_TYPE = os.getenv("LIBRARY_TYPE")
 TARGET_COLLECTION_KEY = os.getenv("COLLECTION_KEY")
 
-# Search Configuration
-MAX_SEARCH_RESULTS = 5
-DELAY_BETWEEN_ITEMS = 2
-
 # Ollama Configuration
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "minimax-m2:cloud")
 OLLAMA_TIMEOUT = int(os.getenv("OLLAMA_TIMEOUT", "60"))
 OLLAMA_TEMPERATURE = float(os.getenv("OLLAMA_TEMPERATURE", "0.3"))
+
+# Search Configuration
+MAX_SEARCH_RESULTS = 5
+DELAY_BETWEEN_ITEMS = 2
 
 def _call_ollama(prompt):
     """Helper to call Ollama API with retry logic."""
