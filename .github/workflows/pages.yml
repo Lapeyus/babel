@@ -29,7 +29,7 @@ jobs:
           COLLECTION_KEY: ${{ secrets.COLLECTION_KEY }}
         run: |
           sed -i "s|export const LIBRARY_ID = '.*';|export const LIBRARY_ID = '$LIBRARY_ID';|" src/config.js
-          sed -i "s|export const API_KEY = '.*';|export const API_KEY = '$API_KEY';|" src/config.js
+          # sed -i "s|export const API_KEY = '.*';|export const API_KEY = '$API_KEY';|" src/config.js
           sed -i "s|export const COLLECTION_KEY = \".*\";|export const COLLECTION_KEY = \"$COLLECTION_KEY\";|" src/config.js
           sed -i "s|export const COLLECTION_KEY = '.*';|export const COLLECTION_KEY = '$COLLECTION_KEY';|" src/config.js
 
