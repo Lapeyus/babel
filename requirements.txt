@@ -1,6 +1,0 @@
-pyzotero
-requests
-ddgs
-duckduckgo_search
-tqdm
-beautifulsoup4

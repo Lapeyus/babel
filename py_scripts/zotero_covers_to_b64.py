@@ -2,16 +2,29 @@ from pyzotero import zotero
 import requests
 import base64
 import time
+import io
 
-ZOTERO_USER_ID = "1595072"
-ZOTERO_API_KEY = "mB0Blp4yjVIuX17QBYLsswIM"
-LIBRARY_TYPE = "user"
-COLLECTION_KEY = "F753DWXD"
+from PIL import Image
+
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
+
+ZOTERO_USER_ID = os.getenv("ZOTERO_USER_ID")
+ZOTERO_API_KEY = os.getenv("ZOTERO_API_KEY")
+LIBRARY_TYPE = os.getenv("LIBRARY_TYPE")
+COLLECTION_KEY = os.getenv("COLLECTION_KEY")
 COVER_ATTACHMENT_TITLE = "Book Cover (Web)"
 COVER_NOTE_TITLE = "Book Cover (b64)"
-TARGET_ITEM_TYPE = "book"
+TARGET_ITEM_TYPE = os.getenv("TARGET_ITEM_TYPE")
+
+# Search Configuration
 REQUEST_TIMEOUT = 10
 DELAY_BETWEEN_ITEMS = 0.5  # Seconds between processing items
+MAX_B64_SIZE = 500000  # Maximum base64 size (500KB) to stay under Zotero's note limit
+MAX_IMAGE_WIDTH = 600  # Maximum width for cover images
+JPEG_QUALITY = 85  # JPEG compression quality
 
 try:
     from tqdm import tqdm
@@ -28,6 +41,60 @@ except ImportError:
         return _TqdmFallback(iterable, **kwargs)
 
 
+def compress_image(image_data, max_size=MAX_B64_SIZE, max_width=MAX_IMAGE_WIDTH):
+    """Compress image to ensure base64 output is under the size limit"""
+    try:
+        img = Image.open(io.BytesIO(image_data))
+        
+        # Convert to RGB if necessary (for PNG with transparency, etc.)
+        if img.mode in ('RGBA', 'P'):
+            img = img.convert('RGB')
+        
+        # Resize if wider than max_width
+        if img.width > max_width:
+            ratio = max_width / img.width
+            new_height = int(img.height * ratio)
+            img = img.resize((max_width, new_height), Image.Resampling.LANCZOS)
+            print(f"    → Resized to {max_width}x{new_height}")
+        
+        # Try different quality levels until we're under the size limit
+        quality = JPEG_QUALITY
+        while quality >= 20:
+            buffer = io.BytesIO()
+            img.save(buffer, format='JPEG', quality=quality, optimize=True)
+            compressed_data = buffer.getvalue()
+            b64_size = len(base64.b64encode(compressed_data))
+            
+            if b64_size <= max_size:
+                print(f"    → Compressed to {b64_size} chars (quality={quality})")
+                return compressed_data, 'image/jpeg'
+            
+            quality -= 10
+        
+        # If still too large, resize more aggressively
+        for scale in [0.75, 0.5, 0.25]:
+            new_width = int(img.width * scale)
+            new_height = int(img.height * scale)
+            resized = img.resize((new_width, new_height), Image.Resampling.LANCZOS)
+            
+            buffer = io.BytesIO()
+            resized.save(buffer, format='JPEG', quality=60, optimize=True)
+            compressed_data = buffer.getvalue()
+            b64_size = len(base64.b64encode(compressed_data))
+            
+            if b64_size <= max_size:
+                print(f"    → Aggressively resized to {new_width}x{new_height}, {b64_size} chars")
+                return compressed_data, 'image/jpeg'
+        
+        # Last resort: return smallest version
+        print(f"    ⚠ Could not compress below limit, using smallest version")
+        return compressed_data, 'image/jpeg'
+        
+    except Exception as e:
+        print(f"    ✗ Error compressing image: {e}")
+        return None, None
+
+
 def download_image_as_b64(url):
     """Download an image from URL and return base64 encoded string"""
     try:
@@ -37,12 +104,19 @@ def download_image_as_b64(url):
         
         # Get the image data
         image_data = response.content
+        content_type = response.headers.get('Content-Type', 'image/jpeg')
+        
+        # Check if base64 would be too large
+        initial_b64_size = len(base64.b64encode(image_data))
+        
+        if initial_b64_size > MAX_B64_SIZE:
+            print(f"    → Image too large ({initial_b64_size} chars), compressing...")
+            image_data, content_type = compress_image(image_data)
+            if image_data is None:
+                return None
         
         # Encode to base64
         b64_data = base64.b64encode(image_data).decode('utf-8')
-        
-        # Determine content type
-        content_type = response.headers.get('Content-Type', 'image/jpeg')
         
         # Create data URI
         data_uri = f"data:{content_type};base64,{b64_data}"
@@ -54,7 +128,7 @@ def download_image_as_b64(url):
 
 
 def get_cover_attachment(zotero_api, item_key):
-    """Get the 'Book Cover (Web)' attachment for an item"""
+    """Get the 'Book Cover (Web)' attachment for an item, returns (attachment_obj, url)"""
     try:
         attachments = zotero_api.children(item_key, itemType='attachment')
         for attachment in attachments:
@@ -63,11 +137,23 @@ def get_cover_attachment(zotero_api, item_key):
             if title == COVER_ATTACHMENT_TITLE:
                 url = data.get('url')
                 if url:
-                    return url
-        return None
+                    return attachment, url
+        return None, None
     except Exception as e:
         print(f"    ✗ Error fetching attachments: {e}")
-        return None
+        return None, None
+
+
+def delete_attachment(zotero_api, attachment):
+    """Delete an attachment from Zotero"""
+    try:
+        attachment_key = attachment['key']
+        zotero_api.delete_item(attachment)
+        print(f"    🗑 Deleted original '{COVER_ATTACHMENT_TITLE}' attachment")
+        return True
+    except Exception as e:
+        print(f"    ✗ Error deleting attachment: {e}")
+        return False
 
 
 def get_b64_note(zotero_api, item_key):
@@ -170,6 +256,7 @@ def main():
         "download_failed": 0,
         "created": 0,
         "updated": 0,
+        "deleted": 0,
         "errors": 0
     }
     
@@ -190,8 +277,8 @@ def main():
             stats["already_has_b64"] += 1
             continue
 
-        # Get the web cover URL
-        cover_url = get_cover_attachment(zot, item_key)
+        # Get the web cover attachment and URL
+        cover_attachment, cover_url = get_cover_attachment(zot, item_key)
         
         if not cover_url:
             print(f"    ⚠ No '{COVER_ATTACHMENT_TITLE}' attachment found")
@@ -218,6 +305,9 @@ def main():
         else:
             if create_b64_note(zot, item_key, b64_data):
                 stats["created"] += 1
+                # Delete the original web cover attachment after successful b64 note creation
+                if cover_attachment and delete_attachment(zot, cover_attachment):
+                    stats["deleted"] += 1
             else:
                 stats["errors"] += 1
         
@@ -233,6 +323,7 @@ def main():
     print(f"Download failed:           {stats['download_failed']}")
     print(f"B64 notes created:         {stats['created']}")
     print(f"B64 notes updated:         {stats['updated']}")
+    print(f"Original covers deleted:   {stats['deleted']}")
     print(f"Errors:                    {stats['errors']}")
     print("=" * 70)
 

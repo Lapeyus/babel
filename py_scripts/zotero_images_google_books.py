@@ -2,12 +2,16 @@ from pyzotero import zotero
 import requests
 import time
 
-ZOTERO_USER_ID = "1595072"
-ZOTERO_API_KEY = "mB0Blp4yjVIuX17QBYLsswIM"
-LIBRARY_TYPE = "user"
-COLLECTION_KEY = "4745YEWB"
-COVER_ATTACHMENT_TITLE = "Book Cover (Web)"
-TARGET_ITEM_TYPE = "book"
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
+
+ZOTERO_USER_ID = os.getenv("ZOTERO_USER_ID")
+ZOTERO_API_KEY = os.getenv("ZOTERO_API_KEY")
+LIBRARY_TYPE = os.getenv("LIBRARY_TYPE")
+COLLECTION_KEY = os.getenv("COLLECTION_KEY")
+TARGET_ITEM_TYPE = os.getenv("TARGET_ITEM_TYPE")
 REQUEST_TIMEOUT = 8
 SEARCH_DELAY = 1  # Seconds between API calls
 

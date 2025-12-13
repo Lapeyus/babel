@@ -23,18 +23,59 @@ Static frontend for browsing a Zotero library with an image-heavy grid similar t
 
 The grid loads the first 100 top-level items, fetches their attachment children, and uses the first image attachment as a cover. If no attachment is available, the card shows a fallback initial.
 
-## Automation scripts and CI
+## Python Scripts
 
-- `zotero_images.py`, `zotero_abstracts.py`, and `zotero_tags.py` default to a bundled
-  read-only Zotero API key. Edit each file's `ZOTERO_API_KEY` constant to customise access.
-- `.github/workflows/zotero-automation.yml` provides a `workflow_dispatch` job that installs
-  dependencies and runs any of the scripts. Trigger the workflow from the Actions tab and choose
-  which script you want to execute.
-- `.github/workflows/pages.yml` deploys the static site to GitHub Pages whenever you push to
-  `main` (or run it manually). Enable Pages in the repository settings, point it at
-  "GitHub Actions", then push to publish the latest build.
+A collection of Python scripts in `py_scripts/` to automate Zotero library management, enrichment, and cleanup.
 
-## Current features
+### Setup
+
+1. **Install dependencies:**
+   ```bash
+   cd py_scripts
+   python -m venv .venv
+   source .venv/bin/activate
+   pip install -r requirements.txt
+   ```
+
+2. **Configure environment:**
+   Copy `.env.example` to `.env` in the root `babel/` directory (or create it) and fill in your details:
+   ```ini
+   ZOTERO_USER_ID="your_user_id"
+   ZOTERO_API_KEY="your_api_key_read_write"
+   LIBRARY_TYPE="user"      # or "group"
+   COLLECTION_KEY=""        # Target collection key (optional)
+   TARGET_ITEM_TYPE="book"
+   
+   # Ollama Configuration
+   OLLAMA_URL="http://localhost:11434"
+   OLLAMA_MODEL="minimax-m2:cloud"
+   OLLAMA_TIMEOUT=60
+   OLLAMA_TEMPERATURE=0.3
+   ```
+
+### Scripts Description
+
+| Script | Description |
+|--------|-------------|
+| `zotero_abstracts.py` | Generates book abstracts in Spanish using Ollama LLM and search context, saving them to the `abstractNote` field. |
+| `zotero_aquileo.py` | Automatically finds winners of the "Premio Aquileo J. Echeverría" (Cuento) and adds their books to the target collection. |
+| `zotero_nobel_winners.py` | Automatically finds Nobel Prize in Literature winners and adds a representative book for each to the target collection. |
+| `zotero_enrich.py` | Analyzes books to generate tags, genres, and keywords using an LLM. Also creates `dc:relation` links between similar items. |
+| `zotero_tags.py` | Generates 3-6 thematic tags for books using an LLM and adds them to Zotero. |
+| `zotero_metadata_fixer.py` | Uses search results and LLM to correct metadata errors (split author names, fix dates/publishers) and fill missing fields. |
+| `zotero_original_dates.py` | Finds the *original* publication date for classic works and adds it to the `Extra` field as `original-date: YYYY`. |
+| `zotero_images_duckduckgo.py` | Searches DuckDuckGo Images for book covers and attaches them as linked URLs (`Book Cover (Web)`). |
+| `zotero_images_google_books.py` | Searches Google Books API for high-res covers and attaches them as linked URLs. |
+| `zotero_covers_to_b64.py` | Downloads linked cover images, resizes/compresses them, stores them as a Base64-encoded `note`, and deletes the original link. |
+
+### Usage
+
+Run any script from the `py_scripts` directory:
+```bash
+python zotero_abstracts.py
+```
+
+## Current features (Frontend)
 
 - Responsive cover grid inspired by the provided screenshot.
 - Search-as-you-type across titles and creators.

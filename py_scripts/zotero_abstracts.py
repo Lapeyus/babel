@@ -29,20 +29,28 @@ except ImportError:  # pragma: no cover - fallback when tqdm is missing
     def tqdm(iterable, **kwargs):
         return _TqdmFallback(iterable, **kwargs)
 
-ZOTERO_USER_ID = "1595072"
-ZOTERO_API_KEY = "mB0Blp4yjVIuX17QBYLsswIM"
-LIBRARY_TYPE = "user"
-COLLECTION_KEY = "6B5XG7TP"  # Leave empty to process the entire library
-TARGET_ITEM_TYPE = "book"
+import os
+from dotenv import load_dotenv
 
+load_dotenv()
+
+# Zotero Configuration
+ZOTERO_USER_ID = os.getenv("ZOTERO_USER_ID")
+ZOTERO_API_KEY = os.getenv("ZOTERO_API_KEY")
+LIBRARY_TYPE = os.getenv("LIBRARY_TYPE")
+COLLECTION_KEY = os.getenv("COLLECTION_KEY")
+TARGET_ITEM_TYPE = os.getenv("TARGET_ITEM_TYPE")
+
+# Ollama Configuration
+OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434")
+OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "minimax-m2:cloud")
+OLLAMA_TIMEOUT = int(os.getenv("OLLAMA_TIMEOUT", "60"))
+OLLAMA_TEMPERATURE = float(os.getenv("OLLAMA_TEMPERATURE", "0.3"))
+
+# Search Configuration
 MAX_SEARCH_RESULTS = 5
 MIN_SNIPPET_LENGTH = 60
 OVERWRITE_EXISTING_ABSTRACTS = False
-
-OLLAMA_URL = "http://localhost:11434"
-OLLAMA_MODEL = "minimax-m2:cloud"
-OLLAMA_TIMEOUT = 60
-OLLAMA_TEMPERATURE = 0.3
 
 
 def fetch_items_recursively(zotero_api, collection_key):
@@ -96,7 +104,6 @@ def fetch_target_items(zotero_api, collection_key=None):
     print(f"Found {len(unique_items)} {TARGET_ITEM_TYPE}s in {source_label}.")
     return unique_items
 
-
 def get_book_author(creators):
     """Return the best author name available for a Zotero item."""
     for creator in creators:
@@ -109,7 +116,6 @@ def get_book_author(creators):
         if name:
             return name.strip()
     return None
-
 
 def search_book_information(title, author=None, max_results=MAX_SEARCH_RESULTS):
     """Collect short snippets about a book using DuckDuckGo text search."""
@@ -138,7 +144,6 @@ def search_book_information(title, author=None, max_results=MAX_SEARCH_RESULTS):
 
     return snippets
 
-
 def build_abstract_prompt(title, author, snippets):
     """Create the inference prompt for the Ollama model."""
     header = [
@@ -154,7 +159,6 @@ def build_abstract_prompt(title, author, snippets):
     context_block = "\n".join(f"- {snippet}" for snippet in snippets)
     prompt = " ".join(header) + "\n\nContext:\n" + context_block + "\n\nAbstract (in Spanish):"
     return prompt
-
 
 def check_and_translate_abstract(existing_abstract, title, author, snippets):
     """Check if abstract is in Spanish, if not rewrite it."""
@@ -191,7 +195,6 @@ def check_and_translate_abstract(existing_abstract, title, author, snippets):
         print(f"Translation check failed: {e}")
         return existing_abstract
 
-
 def generate_abstract_with_ollama(title, author, snippets):
     """Send a prompt to Ollama and return the generated abstract."""
     if not snippets:
@@ -225,7 +228,6 @@ def generate_abstract_with_ollama(title, author, snippets):
     print(f"Unexpected Ollama response for '{title}': {result}")
     return None
 
-
 def update_item_abstract(zotero_api, item, abstract):
     """Update the Zotero item's abstract and persist the change."""
     item_key = item.get("key")
@@ -238,7 +240,6 @@ def update_item_abstract(zotero_api, item, abstract):
     except Exception as error:  # noqa: BLE001
         print(f"Failed to update abstract for item {item_key}: {error}")
         return False
-
 
 def process_items(zotero_api, items):
     """Generate and store abstracts for each item in the provided iterable."""
@@ -295,7 +296,6 @@ def process_items(zotero_api, items):
 
         update_item_abstract(zotero_api, item, abstract)
 
-
 def main():
     zot = zotero.Zotero(ZOTERO_USER_ID, LIBRARY_TYPE, ZOTERO_API_KEY)
 
@@ -303,7 +303,6 @@ def main():
 
     process_items(zot, items)
     print("All items processed.")
-
 
 if __name__ == "__main__":
     main()

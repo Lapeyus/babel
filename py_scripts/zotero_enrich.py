@@ -33,20 +33,26 @@ except ImportError:  # pragma: no cover - fallback when tqdm is missing
     def tqdm(iterable, **kwargs):
         return _TqdmFallback(iterable, **kwargs)
 
-ZOTERO_USER_ID = "1595072"
-ZOTERO_API_KEY = ""
-LIBRARY_TYPE = "user"
-COLLECTION_KEY = "F753DWXD"  # Leave empty to process the entire library
-TARGET_ITEM_TYPE = "book"
+import os
+from dotenv import load_dotenv
 
+load_dotenv()
+
+ZOTERO_USER_ID = os.getenv("ZOTERO_USER_ID")
+ZOTERO_API_KEY = os.getenv("ZOTERO_API_KEY")
+LIBRARY_TYPE = os.getenv("LIBRARY_TYPE")
+COLLECTION_KEY = os.getenv("COLLECTION_KEY")
+TARGET_ITEM_TYPE = os.getenv("TARGET_ITEM_TYPE")
+
+OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434")
+OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "minimax-m2:cloud")
+OLLAMA_TIMEOUT = int(os.getenv("OLLAMA_TIMEOUT", "60"))
+OLLAMA_TEMPERATURE = float(os.getenv("OLLAMA_TEMPERATURE", "0.3"))
+
+# Search Configuration
 MAX_SEARCH_RESULTS = 5
 MIN_SNIPPET_LENGTH = 60
 OVERWRITE_EXISTING_TAGS = False
-
-OLLAMA_URL = "http://localhost:11434"
-OLLAMA_MODEL = "minimax-m2:cloud"
-OLLAMA_TIMEOUT = 60
-OLLAMA_TEMPERATURE = 0.3
 
 # Relation scoring weights
 WEIGHT_SAME_AUTHOR = 5
