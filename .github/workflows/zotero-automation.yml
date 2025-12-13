@@ -10,6 +10,7 @@ on:
         type: choice
         options:
           - py_scripts/zotero_ci_covers.py
+          - py_scripts/zotero_ci_abstracts.py
 
 jobs:
   run-script:
@@ -35,4 +36,5 @@ jobs:
           LIBRARY_TYPE: ${{ secrets.LIBRARY_TYPE }}
           COLLECTION_KEY: ${{ secrets.COLLECTION_KEY }}
           TARGET_ITEM_TYPE: ${{ secrets.TARGET_ITEM_TYPE }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: python ${{ github.event.inputs.script }}

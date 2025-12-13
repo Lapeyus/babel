@@ -46,15 +46,15 @@ LIBRARY_TYPE = os.getenv("LIBRARY_TYPE")
 COLLECTION_KEY = os.getenv("COLLECTION_KEY")
 TARGET_ITEM_TYPE = os.getenv("TARGET_ITEM_TYPE")
 
-# Search Configuration
-MAX_SEARCH_RESULTS = 3
-OVERWRITE_EXISTING_DATES = False  # Set to True to overwrite existing original-date fields
-
 # Ollama Configuration
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "minimax-m2:cloud")
 OLLAMA_TIMEOUT = int(os.getenv("OLLAMA_TIMEOUT", "60"))
 OLLAMA_TEMPERATURE = float(os.getenv("OLLAMA_TEMPERATURE", "0.3"))
+
+# Search Configuration
+MAX_SEARCH_RESULTS = 3
+OVERWRITE_EXISTING_DATES = False  # Set to True to overwrite existing original-date fields
 
 
 def fetch_target_items(zotero_api, collection_key=None):
