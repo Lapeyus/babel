@@ -6,12 +6,10 @@ on:
       script:
         description: "Which automation script to run"
         required: true
-        default: zotero_tags.py
+        default: py_scripts/zotero_ci_covers.py
         type: choice
         options:
-          - zotero_tags.py
-          - zotero_abstracts.py
-          - zotero_images.py
+          - py_scripts/zotero_ci_covers.py
 
 jobs:
   run-script:
@@ -28,7 +26,13 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          pip install -r py_scripts/requirements.txt
 
       - name: Run Zotero automation
+        env:
+          ZOTERO_USER_ID: ${{ secrets.ZOTERO_USER_ID }}
+          ZOTERO_API_KEY: ${{ secrets.ZOTERO_API_KEY }}
+          LIBRARY_TYPE: ${{ secrets.LIBRARY_TYPE }}
+          COLLECTION_KEY: ${{ secrets.COLLECTION_KEY }}
+          TARGET_ITEM_TYPE: ${{ secrets.TARGET_ITEM_TYPE }}
         run: python ${{ github.event.inputs.script }}
