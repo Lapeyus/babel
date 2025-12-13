@@ -1,7 +1,7 @@
 pyzotero==1.6.11
 requests==2.32.4
 ddgs==9.9.2
-duckduckgo-search==2025.4.1
+duckduckgo-search>=7.0.0
 tqdm==4.67.1
 beautifulsoup4==4.12.3
 python-dotenv==1.1.0
