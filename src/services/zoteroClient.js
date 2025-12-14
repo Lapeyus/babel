@@ -440,14 +440,37 @@ function extractB64CoverFromNotes(notes, attachments = []) {
         }
       }
 
-      // Debug: log content info if extraction failed
+      // Last resort: look for ANY 8-character key in a p tag that also has width/height (image placeholder)
+      // Pattern: <p ... key="XXXXXXXX" ... width="..." height="...">
+      const imgPlaceholderMatch = content.match(/<p[^>]*?["']([A-Z0-9]{8})["'][^>]*(?:width|height)\s*=/i);
+      if (imgPlaceholderMatch && imgPlaceholderMatch[1]) {
+        const embeddedKey = imgPlaceholderMatch[1];
+        console.log('[ZoteroClient] Found key in image placeholder p tag', { noteKey: note.key, embeddedKey });
+
+        const embeddedAttachment = attachments.find(att => att.key === embeddedKey);
+        if (embeddedAttachment) {
+          const imageUrl = embeddedAttachment.resolvedUrl ||
+            appendKeyToUrl(embeddedAttachment.links?.enclosure?.href ||
+              (embeddedAttachment.links?.self?.href ? `${embeddedAttachment.links.self.href}/file` : ''));
+
+          if (imageUrl) {
+            console.log('[ZoteroClient] Resolved image placeholder to URL', { embeddedKey, imageUrl: imageUrl.substring(0, 80) + '...' });
+            return imageUrl;
+          }
+        } else {
+          console.warn('[ZoteroClient] Image placeholder key not found in attachments', { embeddedKey, availableKeys: attachments.map(a => a.key) });
+        }
+      }
+
+      // Debug: log full content to help diagnose format issues
       console.warn('[ZoteroClient] Found "Book Cover (b64)" note but failed to extract image.', {
         noteKey: note.key,
         contentLength: content.length,
-        contentPreview: content.substring(0, 500),
+        fullContent: content,  // Log the FULL content for debugging
         hasDataImage: content.includes('data:image'),
         hasSrcAttr: content.includes('src='),
-        hasAttachmentKey: content.includes('data-attachment-key')
+        hasKeyEquals: content.includes('key='),
+        has8CharPattern: /[A-Z0-9]{8}/i.test(content)
       });
     }
   }
