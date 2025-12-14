@@ -335,17 +335,28 @@ function chooseCoverUrl(attachments) {
     .sort((a, b) => {
       const score = (attachment) => {
         let s = 0;
+        const title = attachment.title ?? '';
+
+        // Highest priority: Specific "Book Cover (Web)" title
+        if (title.trim() === 'Book Cover (Web)') return 100;
+
         if (attachment.contentType?.startsWith('image/')) s += 4;
         if (attachment.fileName && isLikelyImageUrl(attachment.fileName)) s += 2;
         if (isLikelyImageUrl(attachment.url)) s += 3;
-        if (/cover/i.test(attachment.title ?? '')) s += 1;
+        if (/cover/i.test(title)) s += 1;
         return s;
       };
       return score(b) - score(a);
     });
 
   for (const attachment of ranked) {
-    const { links, url } = attachment;
+    const { links, url, title } = attachment;
+
+    // If it's the specific Web cover, return its URL immediately
+    if (title?.trim() === 'Book Cover (Web)') {
+      return url || appendKeyToUrl(links?.enclosure?.href || (links?.self?.href ? `${links.self.href}/file` : ''));
+    }
+
     const enclosure = links?.enclosure?.href ?? '';
     const selfFile = links?.self?.href ? `${links.self.href}/file` : '';
 
@@ -366,10 +377,13 @@ function chooseCoverUrl(attachments) {
 }
 
 function extractB64CoverFromNotes(notes) {
-  // Look for a note with title "Book Cover (b64)"
+  // Look for a note with title/header "Book Cover (b64)"
   for (const note of notes) {
     const content = note.content || '';
-    if (content.includes('Book Cover (b64)')) {
+    // Check for HTML header or Markdown header
+    // Matches: <h3>Book Cover (b64)</h3>, # Book Cover (b64), ### Book Cover (b64), etc.
+    // Also matches if it's just the exact text on a line (less strict but safer)
+    if (/Book Cover \(b64\)/i.test(content)) {
       // Extract the base64 data URI from the img src
       const match = content.match(/src="(data:image\/[^"]+)"/);
       if (match && match[1]) {

@@ -27,7 +27,7 @@ COLLECTION_KEY = os.getenv("COLLECTION_KEY", "").strip() or None
 TARGET_ITEM_TYPE = os.getenv("TARGET_ITEM_TYPE", "").strip() or "book"
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
-GEMINI_MODEL = "gemini-1.5-flash"
+GEMINI_MODEL = "gemini-2.0-flash-lite"
 
 # Search Configuration
 MAX_SEARCH_RESULTS = 5
@@ -140,6 +140,13 @@ def call_gemini(prompt):
         return response.text.strip()
     except Exception as e:
         print(f"    ✗ Gemini generation failed: {e}")
+        try:
+            print("    ℹ Listing available models:")
+            for m in genai.list_models():
+                if 'generateContent' in m.supported_generation_methods:
+                    print(f"      - {m.name}")
+        except Exception as list_err:
+            print(f"      (Could not list models: {list_err})")
         return None
 
 def check_and_translate_abstract(existing_abstract, title, author, snippets):

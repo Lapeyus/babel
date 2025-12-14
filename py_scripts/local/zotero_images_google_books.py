@@ -16,6 +16,7 @@ TARGET_ITEM_TYPE = os.getenv("TARGET_ITEM_TYPE")
 # Search Configuration
 REQUEST_TIMEOUT = 8
 SEARCH_DELAY = 1  # Seconds between API calls
+COVER_ATTACHMENT_TITLE = 'Book Cover (Web)'
 
 try:
     from tqdm import tqdm
