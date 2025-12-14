@@ -385,9 +385,12 @@ function extractB64CoverFromNotes(notes) {
     // Also matches if it's just the exact text on a line (less strict but safer)
     if (/Book Cover \(b64\)/i.test(content)) {
       // Extract the base64 data URI from the img src
-      const match = content.match(/src="(data:image\/[^"]+)"/);
+      // Robust regex handling single/double quotes and optional spaces
+      const match = content.match(/src\s*=\s*["'](data:image\/[^"']+)["']/);
       if (match && match[1]) {
         return match[1];
+      } else {
+        console.warn('[ZoteroClient] Found "Book Cover (b64)" note but failed to extract data URI.', { noteKey: note.key, contentLength: content.length });
       }
     }
   }
