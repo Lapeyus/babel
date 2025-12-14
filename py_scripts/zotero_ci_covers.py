@@ -144,15 +144,27 @@ def find_cover_url(title, author):
     return None
 
 def get_b64_note(zotero_api, item_key):
-    """Check if 'Book Cover (b64)' note exists"""
+    """Check if 'Book Cover (b64)' note exists and if it has valid b64 data
+    Returns: (note, needs_regeneration) tuple
+    - note: the note object if found, None otherwise
+    - needs_regeneration: True if note exists but was corrupted by Zotero 7
+    """
     try:
         notes = zotero_api.children(item_key, itemType='note')
         for note in notes:
-            if COVER_NOTE_TITLE in note.get('data', {}).get('note', ''):
-                return note
-        return None
-    except:
-        return None
+            content = note.get('data', {}).get('note', '')
+            if COVER_NOTE_TITLE in content:
+                # Check if it has actual base64 data or was converted by Zotero 7
+                has_valid_b64 = 'data:image' in content and 'base64,' in content
+                needs_regeneration = not has_valid_b64
+                if needs_regeneration:
+                    print(f"    ⚠ Note exists but was corrupted by Zotero 7 (no base64 data)")
+                return note, needs_regeneration
+        return None, False
+    except Exception as e:
+        print(f"    ✗ Error checking notes: {e}")
+        return None, False
+
 
 def create_b64_note(zotero_api, item_key, b64_data):
     """Create the b64 cover note"""
@@ -175,6 +187,17 @@ def get_book_author(creators):
             return f"{c.get('firstName', '')} {c.get('lastName', '')}".strip()
     return None
 
+def update_b64_note(zotero_api, note, b64_data):
+    """Update an existing b64 note with new image data"""
+    try:
+        note_html = f'<div><h3>{COVER_NOTE_TITLE}</h3><img src="{b64_data}" alt="Book Cover" style="max-width: 300px; height: auto;" /></div>'
+        note['data']['note'] = note_html
+        zotero_api.update_item(note)
+        return True
+    except Exception as e:
+        print(f"    ✗ Error updating note: {e}")
+        return False
+
 def main():
     if not ZOTERO_API_KEY or not ZOTERO_USER_ID:
         print("Error: ZOTERO_API_KEY and ZOTERO_USER_ID must be set.")
@@ -196,6 +219,7 @@ def main():
 
     processed = 0
     created = 0
+    updated = 0
     errors = 0
 
     for book in tqdm(books, desc="Checking covers"):
@@ -203,11 +227,14 @@ def main():
         item_key = book['key']
         title = book['data'].get('title', 'Untitled')
         
-        # 1. Check if b64 note already exists
-        if get_b64_note(zot, item_key):
-            continue # Skip silent if already exists
+        # 1. Check if b64 note exists and if it needs regeneration
+        existing_note, needs_regeneration = get_b64_note(zot, item_key)
+        
+        if existing_note and not needs_regeneration:
+            continue  # Skip - note exists with valid b64 data
             
-        print(f"\nProcessing: {title} ({item_key})")
+        action = "Regenerating" if needs_regeneration else "Processing"
+        print(f"\n{action}: {title} ({item_key})")
         
         # 2. Find cover URL
         author = get_book_author(book['data'].get('creators', []))
@@ -228,18 +255,28 @@ def main():
             errors += 1
             continue
             
-        # 4. Create note
-        if create_b64_note(zot, item_key, b64_data):
-            print("  ✓ Created base64 cover note.")
-            created += 1
+        # 4. Create or update note
+        if existing_note:
+            # Update existing corrupted note
+            if update_b64_note(zot, existing_note, b64_data):
+                print("  ✓ Regenerated base64 cover note.")
+                updated += 1
+            else:
+                errors += 1
         else:
-            errors += 1
+            # Create new note
+            if create_b64_note(zot, item_key, b64_data):
+                print("  ✓ Created base64 cover note.")
+                created += 1
+            else:
+                errors += 1
             
         time.sleep(SEARCH_DELAY)
 
     print("\n" + "="*50)
     print(f"Processed: {processed}")
     print(f"Created:   {created}")
+    print(f"Updated:   {updated}")
     print(f"Errors:    {errors}")
     print("="*50)
 
