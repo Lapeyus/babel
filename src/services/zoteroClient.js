@@ -379,18 +379,40 @@ function chooseCoverUrl(attachments) {
 function extractB64CoverFromNotes(notes) {
   // Look for a note with title/header "Book Cover (b64)"
   for (const note of notes) {
-    const content = note.content || '';
+    let content = note.content || '';
     // Check for HTML header or Markdown header
     // Matches: <h3>Book Cover (b64)</h3>, # Book Cover (b64), ### Book Cover (b64), etc.
     // Also matches if it's just the exact text on a line (less strict but safer)
     if (/Book Cover \(b64\)/i.test(content)) {
+      // Decode HTML entities that might be present (e.g., &quot; -> ")
+      content = content
+        .replace(/&quot;/g, '"')
+        .replace(/&apos;/g, "'")
+        .replace(/&lt;/g, '<')
+        .replace(/&gt;/g, '>')
+        .replace(/&amp;/g, '&');
+
       // Extract the base64 data URI from the img src
       // Robust regex handling single/double quotes and optional spaces
       const match = content.match(/src\s*=\s*["'](data:image\/[^"']+)["']/);
       if (match && match[1]) {
+        console.log('[ZoteroClient] Successfully extracted b64 cover from note', { noteKey: note.key, dataLength: match[1].length });
         return match[1];
       } else {
-        console.warn('[ZoteroClient] Found "Book Cover (b64)" note but failed to extract data URI.', { noteKey: note.key, contentLength: content.length });
+        // Try alternate pattern without quotes (sometimes used)
+        const altMatch = content.match(/src\s*=\s*(data:image\/[^\s">]+)/);
+        if (altMatch && altMatch[1]) {
+          console.log('[ZoteroClient] Extracted b64 cover using alternate pattern', { noteKey: note.key, dataLength: altMatch[1].length });
+          return altMatch[1];
+        }
+        // Debug: log first 500 chars of content to see what's happening
+        console.warn('[ZoteroClient] Found "Book Cover (b64)" note but failed to extract data URI.', {
+          noteKey: note.key,
+          contentLength: content.length,
+          contentPreview: content.substring(0, 500),
+          hasDataImage: content.includes('data:image'),
+          hasSrcAttr: content.includes('src=')
+        });
       }
     }
   }
