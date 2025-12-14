@@ -376,13 +376,22 @@ function chooseCoverUrl(attachments) {
   return null;
 }
 
-function extractB64CoverFromNotes(notes) {
+/**
+ * Extract cover image from notes.
+ * Handles both:
+ * 1. Direct base64 data URIs in img src
+ * 2. Zotero 7's embedded attachment references (data-attachment-key)
+ * 
+ * @param {Array} notes - Array of note objects with content
+ * @param {Array} attachments - Array of attachment objects to search for embedded refs
+ * @returns {string|null} - Data URI, attachment URL, or null
+ */
+function extractB64CoverFromNotes(notes, attachments = []) {
   // Look for a note with title/header "Book Cover (b64)"
   for (const note of notes) {
     let content = note.content || '';
     // Check for HTML header or Markdown header
     // Matches: <h3>Book Cover (b64)</h3>, # Book Cover (b64), ### Book Cover (b64), etc.
-    // Also matches if it's just the exact text on a line (less strict but safer)
     if (/Book Cover \(b64\)/i.test(content)) {
       // Decode HTML entities that might be present (e.g., &quot; -> ")
       content = content
@@ -392,28 +401,53 @@ function extractB64CoverFromNotes(notes) {
         .replace(/&gt;/g, '>')
         .replace(/&amp;/g, '&');
 
-      // Extract the base64 data URI from the img src
-      // Robust regex handling single/double quotes and optional spaces
+      // First, try to extract base64 data URI from the img src
       const match = content.match(/src\s*=\s*["'](data:image\/[^"']+)["']/);
       if (match && match[1]) {
         console.log('[ZoteroClient] Successfully extracted b64 cover from note', { noteKey: note.key, dataLength: match[1].length });
         return match[1];
-      } else {
-        // Try alternate pattern without quotes (sometimes used)
-        const altMatch = content.match(/src\s*=\s*(data:image\/[^\s">]+)/);
-        if (altMatch && altMatch[1]) {
-          console.log('[ZoteroClient] Extracted b64 cover using alternate pattern', { noteKey: note.key, dataLength: altMatch[1].length });
-          return altMatch[1];
-        }
-        // Debug: log first 500 chars of content to see what's happening
-        console.warn('[ZoteroClient] Found "Book Cover (b64)" note but failed to extract data URI.', {
-          noteKey: note.key,
-          contentLength: content.length,
-          contentPreview: content.substring(0, 500),
-          hasDataImage: content.includes('data:image'),
-          hasSrcAttr: content.includes('src=')
-        });
       }
+
+      // Try alternate pattern without quotes
+      const altMatch = content.match(/src\s*=\s*(data:image\/[^\s">]+)/);
+      if (altMatch && altMatch[1]) {
+        console.log('[ZoteroClient] Extracted b64 cover using alternate pattern', { noteKey: note.key, dataLength: altMatch[1].length });
+        return altMatch[1];
+      }
+
+      // Zotero 7 converts embedded images to attachment references
+      // Look for data-attachment-key="XXXXXXXX" pattern
+      const attachKeyMatch = content.match(/data-attachment-key\s*=\s*["']([A-Z0-9]{8})["']/i);
+      if (attachKeyMatch && attachKeyMatch[1]) {
+        const embeddedKey = attachKeyMatch[1];
+        console.log('[ZoteroClient] Found embedded attachment key in note', { noteKey: note.key, embeddedKey });
+
+        // Look up this attachment in the fetched attachments
+        const embeddedAttachment = attachments.find(att => att.key === embeddedKey);
+        if (embeddedAttachment) {
+          // Build URL to fetch this embedded image
+          const imageUrl = embeddedAttachment.resolvedUrl ||
+            appendKeyToUrl(embeddedAttachment.links?.enclosure?.href ||
+              (embeddedAttachment.links?.self?.href ? `${embeddedAttachment.links.self.href}/file` : ''));
+
+          if (imageUrl) {
+            console.log('[ZoteroClient] Resolved embedded attachment to URL', { embeddedKey, imageUrl: imageUrl.substring(0, 80) + '...' });
+            return imageUrl;
+          }
+        } else {
+          console.warn('[ZoteroClient] Embedded attachment key not found in attachments list', { embeddedKey, availableKeys: attachments.map(a => a.key) });
+        }
+      }
+
+      // Debug: log content info if extraction failed
+      console.warn('[ZoteroClient] Found "Book Cover (b64)" note but failed to extract image.', {
+        noteKey: note.key,
+        contentLength: content.length,
+        contentPreview: content.substring(0, 500),
+        hasDataImage: content.includes('data:image'),
+        hasSrcAttr: content.includes('src='),
+        hasAttachmentKey: content.includes('data-attachment-key')
+      });
     }
   }
   return null;
@@ -436,8 +470,8 @@ export async function attachCoverImages(items) {
           fetchNotesForItem(item.key),
         ]);
 
-        // Try to get b64 cover from notes first
-        const b64Cover = extractB64CoverFromNotes(notes);
+        // Try to get b64 cover from notes first (pass attachments for embedded image lookup)
+        const b64Cover = extractB64CoverFromNotes(notes, attachments);
 
         // Fall back to web attachment if no b64 cover
         const webCoverUrl = chooseCoverUrl(attachments);
