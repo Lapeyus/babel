@@ -416,8 +416,9 @@ function extractB64CoverFromNotes(notes, attachments = []) {
       }
 
       // Zotero 7 converts embedded images to attachment references
-      // Look for data-attachment-key="XXXXXXXX" pattern
-      const attachKeyMatch = content.match(/data-attachment-key\s*=\s*["']([A-Z0-9]{8})["']/i);
+      // Look for data-attachment-key="XXXXXXXX" or key="XXXXXXXX" patterns
+      // Also handles zapi:key and similar variations
+      const attachKeyMatch = content.match(/(?:data-attachment-key|zapi:key|key)\s*=\s*["']([A-Z0-9]{8})["']/i);
       if (attachKeyMatch && attachKeyMatch[1]) {
         const embeddedKey = attachKeyMatch[1];
         console.log('[ZoteroClient] Found embedded attachment key in note', { noteKey: note.key, embeddedKey });
