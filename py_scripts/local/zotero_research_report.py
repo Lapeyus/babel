@@ -312,18 +312,32 @@ def check_existing_research_note(zotero_api, item):
         children = zotero_api.children(item['key'])
         for child in children:
             if child['data'].get('itemType') == 'note':
-                # Check for the specific tag
+                # Check for the specific tag first (most reliable)
                 for tag in child['data'].get('tags', []):
-                    if tag['tag'] == 'deep-research':
+                    if tag.get('tag', '').lower() == 'deep-research':
                         return True
-                # Optional: Check by title if tag is missing (robustness)
-                note_content = child['data'].get('note', '')
-                if 'Reporte de Investigación Profunda' in note_content:
-                    return True
+                
+                # Check by content - multiple patterns for robustness
+                note_content = child['data'].get('note', '').lower()
+                
+                # Check for various possible patterns (HTML or plain text)
+                detection_patterns = [
+                    'reporte de investigación profunda',
+                    'reporte de investigacion profunda',  # without accent
+                    '>reporte de investigación profunda<',  # HTML tag content
+                    'investigación profunda (gemini)',
+                    'investigacion profunda (gemini)',
+                    'deep research report',
+                ]
+                
+                for pattern in detection_patterns:
+                    if pattern in note_content:
+                        return True
+                        
     except Exception as e:
         print(f"    ⚠ Error checking children for {item['key']}: {e}")
-        pass
     return False
+
 
 def process_items(zotero_api, items):
     """Process items: generate research and save as note."""

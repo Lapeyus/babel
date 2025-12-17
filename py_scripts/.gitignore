@@ -136,3 +136,5 @@ cython_debug/
 
 # OS specific
 .DS_Store
+
+*/local/research_state.json
