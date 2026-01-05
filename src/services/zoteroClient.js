@@ -4,7 +4,7 @@ import {
   API_KEY,
   PAGE_SIZE,
   ATTACHMENT_CONCURRENCY,
-  COLLECTION_KEY,
+
   ALLOWED_COLLECTIONS,
   WEBDAV_BASE_URL,
 } from '../config.js';
@@ -145,40 +145,7 @@ export async function fetchTopLevelItems(limit = PAGE_SIZE) {
     return Array.from(uniqueItems.values());
   }
 
-  if (COLLECTION_KEY) {
-    const collectionKeys = [COLLECTION_KEY];
 
-    // Fetch subcollections to include their items
-    try {
-      const subsUrl = new URL(
-        buildLibraryUrl(`/collections/${COLLECTION_KEY}/collections`)
-      );
-      subsUrl.searchParams.set('format', 'json');
-      const subsData = await fetchJSON(subsUrl.toString());
-      if (Array.isArray(subsData)) {
-        collectionKeys.push(...subsData.map((c) => c.key));
-      }
-    } catch (error) {
-      console.warn('Failed to fetch subcollections for item retrieval', error);
-    }
-
-    // Fetch items from all relevant collections in parallel
-    const resultsArrays = await Promise.all(
-      collectionKeys.map((key) =>
-        fetchPagedItems(`/collections/${key}/items/top`, limit)
-      )
-    );
-
-    // Deduplicate items by key
-    const uniqueItems = new Map();
-    resultsArrays.flat().forEach((item) => {
-      if (!uniqueItems.has(item.key)) {
-        uniqueItems.set(item.key, item);
-      }
-    });
-
-    return Array.from(uniqueItems.values());
-  }
 
   return fetchPagedItems('/items/top', limit);
 }
@@ -223,52 +190,7 @@ export async function fetchCollections() {
     }
   }
 
-  if (COLLECTION_KEY) {
-    try {
-      console.log(`Fetching info for collection ${COLLECTION_KEY}...`);
-      // Fetch root collection details
-      const rootUrl = new URL(buildLibraryUrl(`/collections/${COLLECTION_KEY}`));
-      rootUrl.searchParams.set('format', 'json');
-      rootUrl.searchParams.set('include', 'data');
 
-      // Fetch subcollections
-      const subsUrl = new URL(
-        buildLibraryUrl(`/collections/${COLLECTION_KEY}/collections`)
-      );
-      subsUrl.searchParams.set('format', 'json');
-      subsUrl.searchParams.set('include', 'data');
-      subsUrl.searchParams.set('limit', '100');
-      subsUrl.searchParams.set('sort', 'title');
-
-      const [rootData, subsData] = await Promise.all([
-        fetchJSON(rootUrl.toString()),
-        fetchJSON(subsUrl.toString()),
-      ]);
-
-      console.log('Root collection data:', rootData);
-      console.log('Subcollections data:', subsData);
-
-      const rootCollection = {
-        key: rootData.key,
-        name: rootData.data?.name ?? 'Untitled',
-      };
-
-      const subCollections = (Array.isArray(subsData) ? subsData : []).map(
-        (c) => ({
-          key: c.key,
-          name: c.data?.name ?? 'Untitled',
-        })
-      );
-
-      console.log('Parsed subcollections:', subCollections);
-
-      // Return root (as "All") + subcollections
-      return [rootCollection, ...subCollections];
-    } catch (error) {
-      console.warn('Failed to load collection metadata', error);
-      return [];
-    }
-  }
 
   const url = new URL(buildLibraryUrl('/collections/top'));
   url.searchParams.set('format', 'json');
