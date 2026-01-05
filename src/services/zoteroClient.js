@@ -5,6 +5,7 @@ import {
   PAGE_SIZE,
   ATTACHMENT_CONCURRENCY,
   COLLECTION_KEY,
+  ALLOWED_COLLECTIONS,
   WEBDAV_BASE_URL,
 } from '../config.js';
 
@@ -123,6 +124,27 @@ async function fetchPagedItems(path, limit) {
 }
 
 export async function fetchTopLevelItems(limit = PAGE_SIZE) {
+  if (ALLOWED_COLLECTIONS && ALLOWED_COLLECTIONS.length > 0) {
+    // Fetch items from all allowed collections in parallel
+    const collectionKeys = ALLOWED_COLLECTIONS;
+
+    const resultsArrays = await Promise.all(
+      collectionKeys.map((key) =>
+        fetchPagedItems(`/collections/${key}/items/top`, limit)
+      )
+    );
+
+    // Deduplicate items by key
+    const uniqueItems = new Map();
+    resultsArrays.flat().forEach((item) => {
+      if (!uniqueItems.has(item.key)) {
+        uniqueItems.set(item.key, item);
+      }
+    });
+
+    return Array.from(uniqueItems.values());
+  }
+
   if (COLLECTION_KEY) {
     const collectionKeys = [COLLECTION_KEY];
 
@@ -176,6 +198,31 @@ async function getCollectionItemCount(collectionKey) {
 }
 
 export async function fetchCollections() {
+  if (ALLOWED_COLLECTIONS && ALLOWED_COLLECTIONS.length > 0) {
+    try {
+      // Fetch details for each allowed collection
+      const collections = await Promise.all(
+        ALLOWED_COLLECTIONS.map(async (key) => {
+          try {
+            const url = new URL(buildLibraryUrl(`/collections/${key}`));
+            const data = await fetchJSON(url.toString());
+            return {
+              key: data.key,
+              name: data.data?.name ?? 'Untitled',
+            };
+          } catch (err) {
+            console.warn(`Failed to fetch collection ${key}`, err);
+            return null;
+          }
+        })
+      );
+      return collections.filter(Boolean);
+    } catch (error) {
+      console.warn('Failed to load allowed collections', error);
+      return [];
+    }
+  }
+
   if (COLLECTION_KEY) {
     try {
       console.log(`Fetching info for collection ${COLLECTION_KEY}...`);

@@ -5,7 +5,7 @@ import {
   fetchItemBundle,
   findFirstNonEmptyCollection,
 } from './services/zoteroClient.js';
-import { COLLECTION_KEY } from './config.js';
+import { DEFAULT_COLLECTION_ID } from './config.js';
 
 const grid = document.getElementById('libraryGrid');
 const searchInput = document.getElementById('searchInput');
@@ -63,7 +63,7 @@ const state = {
   collections: [],
   filters: {
     q: '',
-    collection: COLLECTION_KEY || 'all',
+    collection: DEFAULT_COLLECTION_ID || 'all',
   },
   visibleCount: 0,
 };
@@ -892,12 +892,11 @@ function populateCollectionFilter(collections) {
 
   collectionFilter.innerHTML = '';
 
-  if (!COLLECTION_KEY) {
-    const allOption = document.createElement('option');
-    allOption.value = 'all';
-    allOption.textContent = 'All Collections';
-    collectionFilter.appendChild(allOption);
-  }
+  // Always allow "All" option (representing the union of loaded items)
+  const allOption = document.createElement('option');
+  allOption.value = 'all';
+  allOption.textContent = 'All Collections';
+  collectionFilter.appendChild(allOption);
 
   const fragment = document.createDocumentFragment();
   collections.forEach((collection) => {
@@ -908,17 +907,12 @@ function populateCollectionFilter(collections) {
   });
   collectionFilter.appendChild(fragment);
 
-  if (COLLECTION_KEY) {
-    // Use the current filter state, which may have been auto-selected
-    collectionFilter.value = state.filters.collection;
+  // Set the selected value to current filter state
+  collectionFilter.value = state.filters.collection;
 
-    if (collections.length > 1) {
-      collectionFilter.disabled = false;
-      collectionFilter.title = 'Filter by subcollection';
-    } else {
-      collectionFilter.disabled = true;
-      collectionFilter.title = 'Collection locked via configuration';
-    }
+  if (collections.length > 0) {
+    collectionFilter.disabled = false;
+    collectionFilter.title = 'Filter by collection';
   }
 }
 
@@ -945,12 +939,12 @@ async function bootstrap() {
     state.items = itemsWithCovers;
     state.collections = collections;
 
-    // Auto-select first non-empty collection if COLLECTION_KEY is set
-    if (COLLECTION_KEY && collections.length > 1) {
-      const nonEmptyKey = await findFirstNonEmptyCollection(collections);
-      if (nonEmptyKey && nonEmptyKey !== COLLECTION_KEY) {
-        state.filters.collection = nonEmptyKey;
-        console.log(`Auto-selected non-empty collection: ${nonEmptyKey}`);
+    // Set default collection if defined
+    if (DEFAULT_COLLECTION_ID) {
+      // Create a map for faster lookup
+      const collectionKeys = new Set(collections.map(c => c.key));
+      if (collectionKeys.has(DEFAULT_COLLECTION_ID)) {
+        state.filters.collection = DEFAULT_COLLECTION_ID;
       }
     }
 
