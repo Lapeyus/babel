@@ -13,7 +13,9 @@ import os
 import re
 import time
 import io
+import json
 import base64
+from urllib.parse import urljoin
 import requests
 from PIL import Image
 from pyzotero import zotero
@@ -38,6 +40,10 @@ COLLECTION_KEY = os.getenv("COLLECTION_KEY", "").strip() or None
 
 TARGET_ITEM_TYPE = os.getenv("TARGET_ITEM_TYPE", "").strip() or "book"
 LIBRARY_TYPE = os.getenv("LIBRARY_TYPE", "").strip() or "user"
+
+# Optional JSON mapping of item key -> cover URL (or list of candidate URLs).
+# Entries prefixed with "page:" point at an HTML page whose og:image is used.
+MANUAL_COVERS = os.getenv("MANUAL_COVERS", "").strip()
 
 
 COVER_NOTE_TITLE = "Book Cover (b64)"
@@ -141,6 +147,69 @@ def download_and_encode(url, trusted=True):
         print(f"    ✗ Error downloading/encoding: {e}")
         return None
 
+def parse_manual_covers():
+    if not MANUAL_COVERS:
+        return {}
+    try:
+        data = json.loads(MANUAL_COVERS)
+        return {
+            key: (value if isinstance(value, list) else [value])
+            for key, value in data.items()
+        }
+    except Exception as e:
+        print(f"⚠ Could not parse MANUAL_COVERS: {e}")
+        return {}
+
+def extract_cover_from_page(page_url):
+    """Fetch an HTML page and pull its og:image / twitter:image (or a
+    plausible product/cover thumbnail) to use as a cover candidate."""
+    try:
+        response = requests.get(
+            page_url, timeout=REQUEST_TIMEOUT, headers={'User-Agent': 'Mozilla/5.0'}
+        )
+        response.raise_for_status()
+        html = response.text
+
+        for prop in ('og:image', 'twitter:image'):
+            m = re.search(
+                r'<meta[^>]+(?:property|name)\s*=\s*["\']' + re.escape(prop) +
+                r'["\'][^>]*content\s*=\s*["\']([^"\']+)["\']',
+                html, re.I,
+            ) or re.search(
+                r'<meta[^>]+content\s*=\s*["\']([^"\']+)["\'][^>]*(?:property|name)\s*=\s*["\']' +
+                re.escape(prop) + r'["\']',
+                html, re.I,
+            )
+            if m:
+                return urljoin(page_url, m.group(1))
+
+        m = re.search(
+            r'<img[^>]+src\s*=\s*["\']([^"\']*(?:pictures\.abebooks\.com|cover|portada)[^"\']*)["\']',
+            html, re.I,
+        )
+        if m:
+            return urljoin(page_url, m.group(1))
+    except Exception as e:
+        print(f"    ⚠ Page fetch error ({page_url[:70]}): {e}")
+    return None
+
+def isbn13_to_10(isbn13):
+    if len(isbn13) != 13 or not isbn13.startswith('978') or not isbn13.isdigit():
+        return None
+    core = isbn13[3:12]
+    total = sum((10 - i) * int(d) for i, d in enumerate(core))
+    check = (11 - total % 11) % 11
+    return core + ('X' if check == 10 else str(check))
+
+def amazon_isbn10s(isbns):
+    """ISBN-10s usable with Amazon's images/P/ cover endpoint"""
+    result = []
+    for isbn in isbns:
+        candidate = isbn if len(isbn) == 10 else isbn13_to_10(isbn)
+        if candidate and candidate not in result:
+            result.append(candidate)
+    return result
+
 def normalize_isbns(raw_isbn):
     """Extract clean ISBN-10/13 strings from Zotero's free-text ISBN field"""
     isbns = []
@@ -243,14 +312,29 @@ def duckduckgo_candidates(title, author):
                     time.sleep(10)
         time.sleep(2)
 
-def find_and_encode_cover(title, author, isbns):
+def find_and_encode_cover(title, author, isbns, manual_urls=()):
     """Walk the source waterfall; return (data_uri, source) for the first
     candidate that downloads and validates as a plausible cover image."""
     def candidates():
+        for entry in manual_urls:
+            if entry.startswith('page:'):
+                resolved = extract_cover_from_page(entry[len('page:'):])
+                if resolved:
+                    yield resolved, "Manual (page og:image)", True
+            else:
+                yield entry, "Manual", True
         for isbn in isbns:
             yield (
                 f"https://covers.openlibrary.org/b/isbn/{isbn}-L.jpg?default=false",
                 "Open Library ISBN",
+                True,
+            )
+        for isbn10 in amazon_isbn10s(isbns):
+            # Amazon serves a 1x1 placeholder for unknown ISBNs, which the
+            # minimum-size validation rejects automatically.
+            yield (
+                f"https://images-na.ssl-images-amazon.com/images/P/{isbn10}.01.LZZZZZZZ.jpg",
+                "Amazon ISBN",
                 True,
             )
         for url, source in google_books_candidates(title, author, isbns):
@@ -356,6 +440,10 @@ def main():
     books = fetch_books(zot)
     print(f"Found {len(books)} books.")
 
+    manual_covers = parse_manual_covers()
+    if manual_covers:
+        print(f"Manual cover overrides for {len(manual_covers)} item(s): {', '.join(manual_covers)}")
+
     processed = 0
     created = 0
     updated = 0
@@ -379,7 +467,9 @@ def main():
         # 2. Search the source waterfall and encode the first valid cover
         author = get_book_author(book['data'].get('creators', []))
         isbns = normalize_isbns(book['data'].get('ISBN', ''))
-        b64_data, source = find_and_encode_cover(title, author, isbns)
+        b64_data, source = find_and_encode_cover(
+            title, author, isbns, manual_covers.get(item_key, ())
+        )
 
         if not b64_data:
             print("  ⚠ No usable cover found in any source.")
