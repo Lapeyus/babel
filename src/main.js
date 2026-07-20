@@ -1,9 +1,6 @@
 import {
-  fetchTopLevelItems,
-  fetchCollections,
-  attachCoverImages,
+  loadLibrary,
   fetchItemBundle,
-  findFirstNonEmptyCollection,
 } from './services/zoteroClient.js';
 import { DEFAULT_COLLECTION_ID } from './config.js';
 
@@ -294,18 +291,30 @@ function createCard(item) {
   const tagsText = tags.map(t => t.tag).join(', ');
   abstractEl.textContent = tagsText || 'No tags available.';
 
+  const fallbackLetter = (item.title?.trim().charAt(0) || '?').toUpperCase();
+  const showCoverFallback = () => {
+    coverWrapper.classList.add('no-cover');
+    if (coverImg?.isConnected) {
+      coverImg.remove();
+    }
+    coverFallback.textContent = fallbackLetter;
+  };
+
   if (item.coverUrl) {
+    coverImg.loading = 'lazy';
+    coverImg.decoding = 'async';
+    // If the cover URL turns out to be broken (e.g. Open Library has no
+    // cover for this ISBN, or a stale attachment link), degrade gracefully.
+    coverImg.addEventListener('error', showCoverFallback, { once: true });
     coverImg.src = item.coverUrl;
     coverImg.alt = `Cover of ${item.title}`;
     coverFallback.textContent = '';
     coverWrapper.classList.remove('no-cover');
   } else {
-    coverWrapper.classList.add('no-cover');
     if (coverImg) {
       coverImg.remove();
     }
-    const fallbackLetter = (item.title?.trim().charAt(0) || '?').toUpperCase();
-    coverFallback.textContent = fallbackLetter;
+    showCoverFallback();
   }
 
   const toggleFlip = () => {
@@ -929,14 +938,12 @@ async function bootstrap() {
   startBabelLoading();
 
   try {
-    const [items, collections] = await Promise.all([
-      fetchTopLevelItems(),
-      fetchCollections().catch(() => []),
-    ]);
+    const { items, collections, fromCache } = await loadLibrary();
+    if (fromCache) {
+      console.log('[Babel] Library loaded from local cache (library unchanged).');
+    }
 
-    const itemsWithCovers = await attachCoverImages(items);
-
-    state.items = itemsWithCovers;
+    state.items = items;
     state.collections = collections;
 
     // Set default collection if defined
