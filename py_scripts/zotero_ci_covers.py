@@ -150,6 +150,21 @@ def normalize_isbns(raw_isbn):
             isbns.append(cleaned.upper())
     return list(dict.fromkeys(isbns))
 
+def get_with_backoff(url, params=None, headers=None, tries=3, base_delay=5):
+    """GET with exponential backoff on 429 (GitHub runner IPs are often
+    rate-limited by public APIs). Returns the response or None."""
+    for attempt in range(tries):
+        response = requests.get(url, params=params, headers=headers, timeout=REQUEST_TIMEOUT)
+        if response.status_code == 429:
+            delay = base_delay * (2 ** attempt)
+            print(f"    … rate limited (429), retrying in {delay}s")
+            time.sleep(delay)
+            continue
+        response.raise_for_status()
+        return response
+    print("    ⚠ Still rate limited after retries, giving up on this query.")
+    return None
+
 def google_books_candidates(title, author, isbns):
     """Yield cover URLs from the Google Books API (ISBN first, then title/author)"""
     queries = [f"isbn:{isbn}" for isbn in isbns]
@@ -160,19 +175,19 @@ def google_books_candidates(title, author, isbns):
 
     for query in queries:
         try:
-            response = requests.get(
+            response = get_with_backoff(
                 "https://www.googleapis.com/books/v1/volumes",
                 params={"q": query, "maxResults": MAX_SEARCH_RESULTS, "printType": "books"},
-                timeout=REQUEST_TIMEOUT,
             )
-            response.raise_for_status()
+            if response is None:
+                continue
             for volume in response.json().get("items", []):
                 image_links = volume.get("volumeInfo", {}).get("imageLinks", {})
                 for key in ("extraLarge", "large", "medium", "small", "thumbnail", "smallThumbnail"):
                     if key in image_links:
                         url = image_links[key].replace("http://", "https://")
                         url = url.replace("&zoom=1", "").replace("zoom=1&", "")
-                        yield url, f"Google Books [{query[:40]}]"
+                        yield url, "Google Books"
                         break
         except Exception as e:
             print(f"    ⚠ Google Books error ({query[:40]}): {e}")
@@ -183,13 +198,13 @@ def openlibrary_search_candidates(title, author):
     if author:
         params["author"] = author
     try:
-        response = requests.get(
+        response = get_with_backoff(
             "https://openlibrary.org/search.json",
             params=params,
-            timeout=REQUEST_TIMEOUT,
             headers={"User-Agent": "babel-cover-fetcher"},
         )
-        response.raise_for_status()
+        if response is None:
+            return
         for doc in response.json().get("docs", []):
             cover_id = doc.get("cover_i")
             if cover_id:
@@ -198,18 +213,35 @@ def openlibrary_search_candidates(title, author):
         print(f"    ⚠ Open Library search error: {e}")
 
 def duckduckgo_candidates(title, author):
-    """Yield cover URLs from DuckDuckGo image search (last resort)"""
-    query = f"{title} book cover"
+    """Yield cover URLs from DuckDuckGo image search (last resort).
+
+    Tries an English and a Spanish query; DDG rate-limits aggressively from
+    CI, so pause between queries and retry each one once after a cooldown.
+    """
+    queries = []
+    base = f"{title} book cover"
     if author:
-        query += f" by {author}"
-    try:
-        with DDGS() as ddgs:
-            for result in ddgs.images(query, max_results=MAX_SEARCH_RESULTS):
-                candidate = result.get("image")
-                if candidate:
-                    yield candidate, "DuckDuckGo"
-    except Exception as e:
-        print(f"    ⚠ DuckDuckGo search error: {e}")
+        base += f" by {author}"
+    queries.append(base)
+    queries.append(f'"{title}" libro portada')
+
+    for query in queries:
+        for attempt in range(2):
+            try:
+                with DDGS() as ddgs:
+                    results = list(ddgs.images(query, max_results=MAX_SEARCH_RESULTS))
+                for result in results:
+                    candidate = result.get("image")
+                    if candidate:
+                        yield candidate, "DuckDuckGo"
+                if results:
+                    return
+                break  # empty result set: try next query, don't retry this one
+            except Exception as e:
+                print(f"    ⚠ DuckDuckGo search error ({query[:40]}): {e}")
+                if attempt == 0:
+                    time.sleep(10)
+        time.sleep(2)
 
 def find_and_encode_cover(title, author, isbns):
     """Walk the source waterfall; return (data_uri, source) for the first
@@ -218,7 +250,7 @@ def find_and_encode_cover(title, author, isbns):
         for isbn in isbns:
             yield (
                 f"https://covers.openlibrary.org/b/isbn/{isbn}-L.jpg?default=false",
-                f"Open Library ISBN {isbn}",
+                "Open Library ISBN",
                 True,
             )
         for url, source in google_books_candidates(title, author, isbns):
@@ -356,7 +388,7 @@ def main():
             continue
 
         print(f"  ✓ Cover obtained via {source}")
-        source_stats[source.split(' [')[0]] = source_stats.get(source.split(' [')[0], 0) + 1
+        source_stats[source] = source_stats.get(source, 0) + 1
 
         # 3. Create or update note
         if existing_note:
