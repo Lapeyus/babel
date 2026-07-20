@@ -11,6 +11,11 @@ on:
         options:
           - py_scripts/zotero_ci_covers.py
           - py_scripts/zotero_ci_abstracts.py
+      collection_key:
+        description: "Optional comma-separated collection keys (overrides the COLLECTION_KEY secret)"
+        required: false
+        default: ""
+        type: string
 
 jobs:
   run-script:
@@ -34,7 +39,7 @@ jobs:
           ZOTERO_USER_ID: ${{ secrets.ZOTERO_USER_ID }}
           ZOTERO_API_KEY: ${{ secrets.ZOTERO_API_KEY }}
           LIBRARY_TYPE: ${{ secrets.LIBRARY_TYPE }}
-          COLLECTION_KEY: ${{ secrets.COLLECTION_KEY }}
+          COLLECTION_KEY: ${{ github.event.inputs.collection_key || secrets.COLLECTION_KEY }}
           TARGET_ITEM_TYPE: ${{ secrets.TARGET_ITEM_TYPE }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: python ${{ github.event.inputs.script }}
