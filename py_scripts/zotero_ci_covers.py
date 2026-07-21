@@ -172,6 +172,13 @@ def manual_urls_for(book, manual_covers):
     title = book['data'].get('title', '').strip().lower()
     return manual_covers.get(f"title:{title}", ())
 
+# Generic site banners/logos that some pages (e.g. Goodreads for
+# unauthenticated bots) serve as og:image — never usable as covers.
+GENERIC_PAGE_IMAGE_RE = re.compile(
+    r'goodreads_wide|/assets/facebook|logo|placeholder|default[_-]?(?:og|share|social)',
+    re.I,
+)
+
 def extract_cover_from_page(page_url):
     """Fetch an HTML page and pull its og:image / twitter:image (or a
     plausible product/cover thumbnail) to use as a cover candidate."""
@@ -193,13 +200,17 @@ def extract_cover_from_page(page_url):
                 html, re.I,
             )
             if m:
-                return urljoin(page_url, m.group(1))
+                candidate = urljoin(page_url, m.group(1))
+                if GENERIC_PAGE_IMAGE_RE.search(candidate):
+                    print(f"    ✗ Page og:image looks like a site logo, skipping: {candidate[:80]}")
+                else:
+                    return candidate
 
         m = re.search(
             r'<img[^>]+src\s*=\s*["\']([^"\']*(?:pictures\.abebooks\.com|cover|portada)[^"\']*)["\']',
             html, re.I,
         )
-        if m:
+        if m and not GENERIC_PAGE_IMAGE_RE.search(m.group(1)):
             return urljoin(page_url, m.group(1))
     except Exception as e:
         print(f"    ⚠ Page fetch error ({page_url[:70]}): {e}")
