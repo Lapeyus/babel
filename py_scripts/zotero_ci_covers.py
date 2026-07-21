@@ -50,6 +50,10 @@ MANUAL_COVERS = os.getenv("MANUAL_COVERS", "").strip()
 
 
 COVER_NOTE_TITLE = "Book Cover (b64)"
+# Items carrying this Zotero tag are never (re)covered automatically.
+# The manual "remove" action adds it so a removed wrong cover stays removed;
+# delete the tag in Zotero to let the search run again for that item.
+NO_COVER_TAG = "no-cover"
 MAX_SEARCH_RESULTS = 5
 REQUEST_TIMEOUT = 10
 SEARCH_DELAY = 2
@@ -171,6 +175,12 @@ def manual_urls_for(book, manual_covers):
         return by_key
     title = book['data'].get('title', '').strip().lower()
     return manual_covers.get(f"title:{title}", ())
+
+def has_no_cover_tag(book):
+    return any(
+        (tag.get('tag') or '').strip().lower() == NO_COVER_TAG
+        for tag in book['data'].get('tags', [])
+    )
 
 # Generic site banners/logos that some pages (e.g. Goodreads for
 # unauthenticated bots) serve as og:image — never usable as covers.
@@ -480,18 +490,31 @@ def main():
         title = book['data'].get('title', 'Untitled')
         manual_urls = manual_urls_for(book, manual_covers)
 
+        # Tagged "no-cover": never search again unless an explicit manual
+        # cover is provided for this item.
+        if not manual_urls and has_no_cover_tag(book):
+            continue
+
         # 1. Check if b64 note exists and if it needs regeneration
         existing_note, needs_regeneration = get_b64_note(zot, item_key)
 
-        # Manual "remove": delete a wrong cover note and move on
+        # Manual "remove": delete a wrong cover note and tag the item so
+        # future runs do not refill it with another search result.
         if manual_urls and 'remove' in manual_urls:
+            print(f"\nRemoving cover: {title} ({item_key})")
             if existing_note:
-                print(f"\nRemoving cover note: {title} ({item_key})")
                 try:
                     zot.delete_item(existing_note)
                     removed += 1
                 except Exception as e:
                     print(f"    ✗ Error deleting note: {e}")
+                    errors += 1
+            if not has_no_cover_tag(book):
+                try:
+                    zot.add_tags(book, NO_COVER_TAG)
+                    print(f"    ✓ Tagged item with '{NO_COVER_TAG}'")
+                except Exception as e:
+                    print(f"    ✗ Error tagging item: {e}")
                     errors += 1
             continue
 

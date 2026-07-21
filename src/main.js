@@ -287,7 +287,9 @@ function createCard(item) {
 
   creatorEl.textContent = formatCreators(item.creators);
 
-  const tags = item.tags || [];
+  const tags = (item.tags || []).filter(
+    (t) => (t.tag || '').toLowerCase() !== 'no-cover'
+  );
   const tagsText = tags.map(t => t.tag).join(', ');
   abstractEl.textContent = tagsText || 'No tags available.';
 
