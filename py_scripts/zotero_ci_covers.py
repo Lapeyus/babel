@@ -41,8 +41,11 @@ COLLECTION_KEY = os.getenv("COLLECTION_KEY", "").strip() or None
 TARGET_ITEM_TYPE = os.getenv("TARGET_ITEM_TYPE", "").strip() or "book"
 LIBRARY_TYPE = os.getenv("LIBRARY_TYPE", "").strip() or "user"
 
-# Optional JSON mapping of item key -> cover URL (or list of candidate URLs).
-# Entries prefixed with "page:" point at an HTML page whose og:image is used.
+# Optional JSON mapping of item key (or "title:<lowercase title>") -> cover
+# URL or list of candidate URLs. Entries prefixed with "page:" point at an
+# HTML page whose og:image is used; the single entry "remove" deletes an
+# existing cover note instead. A manual mapping always replaces whatever
+# cover note the item currently has.
 MANUAL_COVERS = os.getenv("MANUAL_COVERS", "").strip()
 
 
@@ -153,12 +156,21 @@ def parse_manual_covers():
     try:
         data = json.loads(MANUAL_COVERS)
         return {
-            key: (value if isinstance(value, list) else [value])
+            (key.strip().lower() if key.startswith('title:') else key): (
+                value if isinstance(value, list) else [value]
+            )
             for key, value in data.items()
         }
     except Exception as e:
         print(f"⚠ Could not parse MANUAL_COVERS: {e}")
         return {}
+
+def manual_urls_for(book, manual_covers):
+    by_key = manual_covers.get(book['key'])
+    if by_key:
+        return by_key
+    title = book['data'].get('title', '').strip().lower()
+    return manual_covers.get(f"title:{title}", ())
 
 def extract_cover_from_page(page_url):
     """Fetch an HTML page and pull its og:image / twitter:image (or a
@@ -447,6 +459,7 @@ def main():
     processed = 0
     created = 0
     updated = 0
+    removed = 0
     errors = 0
     source_stats = {}
 
@@ -454,22 +467,35 @@ def main():
         processed += 1
         item_key = book['key']
         title = book['data'].get('title', 'Untitled')
+        manual_urls = manual_urls_for(book, manual_covers)
 
         # 1. Check if b64 note exists and if it needs regeneration
         existing_note, needs_regeneration = get_b64_note(zot, item_key)
 
-        if existing_note and not needs_regeneration:
-            continue  # Skip - note exists with valid b64 data
+        # Manual "remove": delete a wrong cover note and move on
+        if manual_urls and 'remove' in manual_urls:
+            if existing_note:
+                print(f"\nRemoving cover note: {title} ({item_key})")
+                try:
+                    zot.delete_item(existing_note)
+                    removed += 1
+                except Exception as e:
+                    print(f"    ✗ Error deleting note: {e}")
+                    errors += 1
+            continue
 
-        action = "Regenerating" if needs_regeneration else "Processing"
+        # A manual mapping always replaces the current cover; otherwise skip
+        # items whose note already has valid b64 data.
+        if existing_note and not needs_regeneration and not manual_urls:
+            continue
+
+        action = "Regenerating" if (needs_regeneration or (existing_note and manual_urls)) else "Processing"
         print(f"\n{action}: {title} ({item_key})")
 
         # 2. Search the source waterfall and encode the first valid cover
         author = get_book_author(book['data'].get('creators', []))
         isbns = normalize_isbns(book['data'].get('ISBN', ''))
-        b64_data, source = find_and_encode_cover(
-            title, author, isbns, manual_covers.get(item_key, ())
-        )
+        b64_data, source = find_and_encode_cover(title, author, isbns, manual_urls)
 
         if not b64_data:
             print("  ⚠ No usable cover found in any source.")
@@ -502,6 +528,7 @@ def main():
     print(f"Processed: {processed}")
     print(f"Created:   {created}")
     print(f"Updated:   {updated}")
+    print(f"Removed:   {removed}")
     print(f"Errors:    {errors}")
     if source_stats:
         print("Covers by source:")
