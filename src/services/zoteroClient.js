@@ -10,6 +10,7 @@ import {
 
 const API_ROOT = 'https://api.zotero.org';
 const MAX_PAGE_SIZE = 100;
+const FETCH_CONCURRENCY = 6;
 
 const REQUIRED_MSG =
   'Set LIBRARY_ID (and optionally API_KEY) in src/config.js before loading the app.';
@@ -59,47 +60,86 @@ async function fetchJSON(url) {
   return data;
 }
 
+function buildPageUrl(baseUrl, params, start, limit) {
+  const url = new URL(baseUrl);
+  url.searchParams.set('format', 'json');
+  url.searchParams.set('include', 'data');
+  url.searchParams.set('limit', String(limit));
+  Object.entries(params).forEach(([key, value]) => {
+    url.searchParams.set(key, value);
+  });
+  if (start > 0) {
+    url.searchParams.set('start', String(start));
+  }
+  return url.toString();
+}
+
+async function runWithConcurrency(tasks, concurrency) {
+  const results = new Array(tasks.length);
+  let next = 0;
+  async function worker() {
+    while (next < tasks.length) {
+      const index = next;
+      next += 1;
+      results[index] = await tasks[index]();
+    }
+  }
+  const workers = Array.from(
+    { length: Math.min(concurrency, tasks.length) },
+    () => worker()
+  );
+  await Promise.all(workers);
+  return results;
+}
+
 /**
  * Fetch every page of a listing endpoint (100 items per request, the API max)
  * until `Total-Results` is exhausted or an optional target count is reached.
+ * The first request reveals the total; the remaining pages download in
+ * parallel (bounded concurrency) instead of one by one.
  */
 async function fetchAllPages(baseUrl, params = {}, targetCount = Number.MAX_SAFE_INTEGER) {
-  const results = [];
-  let start = 0;
-  let totalResults = null;
+  const firstLimit = Math.min(MAX_PAGE_SIZE, targetCount);
+  const { data, totalResults } = await fetchJSONWithHeaders(
+    buildPageUrl(baseUrl, params, 0, firstLimit)
+  );
 
-  while (results.length < targetCount) {
-    const requestLimit = Math.min(MAX_PAGE_SIZE, targetCount - results.length);
-    const url = new URL(baseUrl);
-    url.searchParams.set('format', 'json');
-    url.searchParams.set('include', 'data');
-    url.searchParams.set('limit', String(requestLimit));
-    Object.entries(params).forEach(([key, value]) => {
-      url.searchParams.set(key, value);
-    });
-    if (start > 0) {
-      url.searchParams.set('start', String(start));
+  const results = Array.isArray(data) ? data.slice() : [];
+  const goal = Math.min(totalResults ?? Number.MAX_SAFE_INTEGER, targetCount);
+
+  if (!results.length || results.length >= goal || results.length < firstLimit) {
+    return results.length > targetCount ? results.slice(0, targetCount) : results;
+  }
+
+  if (totalResults != null) {
+    // Known total: fetch all remaining pages in parallel.
+    const starts = [];
+    for (let start = results.length; start < goal; start += MAX_PAGE_SIZE) {
+      starts.push(start);
     }
-
-    const { data, totalResults: reportedTotal } = await fetchJSONWithHeaders(
-      url.toString()
+    const pages = await runWithConcurrency(
+      starts.map((start) => async () => {
+        const limit = Math.min(MAX_PAGE_SIZE, goal - start);
+        const page = await fetchJSONWithHeaders(
+          buildPageUrl(baseUrl, params, start, limit)
+        );
+        return Array.isArray(page.data) ? page.data : [];
+      }),
+      FETCH_CONCURRENCY
     );
-
-    const batch = Array.isArray(data) ? data : [];
-    results.push(...batch);
-
-    if (reportedTotal != null) {
-      totalResults = reportedTotal;
-    }
-
-    if (!batch.length || batch.length < requestLimit) {
-      break;
-    }
-
-    start += batch.length;
-
-    if (totalResults != null && results.length >= totalResults) {
-      break;
+    pages.forEach((page) => results.push(...page));
+  } else {
+    // Unknown total (header missing): fall back to sequential paging.
+    let start = results.length;
+    while (results.length < targetCount) {
+      const limit = Math.min(MAX_PAGE_SIZE, targetCount - results.length);
+      const page = await fetchJSONWithHeaders(
+        buildPageUrl(baseUrl, params, start, limit)
+      );
+      const batch = Array.isArray(page.data) ? page.data : [];
+      results.push(...batch);
+      if (!batch.length || batch.length < limit) break;
+      start += batch.length;
     }
   }
 
@@ -304,19 +344,45 @@ async function fetchNotesForItem(itemKey) {
 }
 
 /**
- * Fetch every attachment and note in the library in a single paginated sweep
- * (ceil(children / 100) requests) and group them by parent item key.
- * Replaces the previous approach of 2 requests per item.
+ * Fetch attachments and notes in bulk paginated sweeps and group them by
+ * parent item key. Scoped to ALLOWED_COLLECTIONS when configured (the
+ * non-/top collection listing includes child items of collection items),
+ * so a large library outside those collections is never downloaded.
  */
 async function fetchLibraryChildren() {
-  const raw = await fetchAllPages(buildLibraryUrl('/items'), {
-    itemType: 'attachment || note',
-  });
+  const childParams = { itemType: 'attachment || note' };
+  let raw;
+
+  if (ALLOWED_COLLECTIONS && ALLOWED_COLLECTIONS.length > 0) {
+    const perCollection = await Promise.all(
+      ALLOWED_COLLECTIONS.map((key) =>
+        fetchAllPages(buildLibraryUrl(`/collections/${key}/items`), childParams).catch(
+          (error) => {
+            console.warn(`Failed to fetch children for collection ${key}`, error);
+            return [];
+          }
+        )
+      )
+    );
+    raw = perCollection.flat();
+
+    // Safety net: if the collection listings returned no child items at all,
+    // fall back to a library-wide sweep so covers still resolve.
+    if (!raw.length) {
+      raw = await fetchAllPages(buildLibraryUrl('/items'), childParams);
+    }
+  } else {
+    raw = await fetchAllPages(buildLibraryUrl('/items'), childParams);
+  }
 
   const attachmentsByParent = new Map();
   const notesByParent = new Map();
+  const seen = new Set();
 
   for (const child of raw) {
+    if (seen.has(child.key)) continue;
+    seen.add(child.key);
+
     const parentKey = child.data?.parentItem;
     if (!parentKey) continue;
 
@@ -521,7 +587,20 @@ function buildIsbnCoverUrl(item) {
 }
 
 export async function attachCoverImages(items) {
-  const { attachmentsByParent, notesByParent } = await fetchLibraryChildren();
+  let attachmentsByParent;
+  let notesByParent;
+  try {
+    ({ attachmentsByParent, notesByParent } = await fetchLibraryChildren());
+  } catch (error) {
+    // Never block the grid on cover data: fall back to ISBN-derived covers.
+    console.warn('Failed to fetch attachments/notes for covers', error);
+    return items.map((item) => ({
+      ...item,
+      attachments: [],
+      coverUrl: buildIsbnCoverUrl(item),
+      isB64Cover: false,
+    }));
+  }
 
   return items.map((item) => {
     const attachments = attachmentsByParent.get(item.key) ?? [];
@@ -551,48 +630,82 @@ async function fetchLibraryVersion() {
 }
 
 const CACHE_KEY = [
-  'babel-library-cache:v1',
+  'babel-library-cache:v2',
   `${LIBRARY_TYPE}/${LIBRARY_ID}`,
   (ALLOWED_COLLECTIONS ?? []).join(','),
   String(PAGE_SIZE),
 ].join(':');
 
-function readLibraryCache() {
+// Cache lives in IndexedDB: the b64 cover notes make the payload far larger
+// than localStorage's ~5MB quota. Structured clone also avoids serializing
+// tens of MB of JSON on the main thread.
+const IDB_NAME = 'babel-library-cache';
+const IDB_STORE = 'library';
+
+function idbOpen() {
+  return new Promise((resolve, reject) => {
+    const request = window.indexedDB.open(IDB_NAME, 1);
+    request.onupgradeneeded = () => {
+      request.result.createObjectStore(IDB_STORE);
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+async function readLibraryCache() {
   try {
-    const raw = window.localStorage.getItem(CACHE_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw);
-    if (!parsed || typeof parsed.version !== 'number' || !Array.isArray(parsed.items)) {
-      return null;
-    }
-    return parsed;
+    const db = await idbOpen();
+    return await new Promise((resolve, reject) => {
+      const request = db
+        .transaction(IDB_STORE, 'readonly')
+        .objectStore(IDB_STORE)
+        .get(CACHE_KEY);
+      request.onsuccess = () => {
+        const parsed = request.result;
+        if (
+          !parsed ||
+          typeof parsed.version !== 'number' ||
+          !Array.isArray(parsed.items)
+        ) {
+          resolve(null);
+          return;
+        }
+        resolve(parsed);
+      };
+      request.onerror = () => reject(request.error);
+    });
   } catch {
     return null;
   }
 }
 
-function writeLibraryCache(payload) {
+async function writeLibraryCache(payload) {
   try {
-    window.localStorage.setItem(CACHE_KEY, JSON.stringify(payload));
+    const db = await idbOpen();
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction(IDB_STORE, 'readwrite');
+      tx.objectStore(IDB_STORE).put(payload, CACHE_KEY);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+      tx.onabort = () => reject(tx.error);
+    });
   } catch (error) {
-    // Quota exceeded (b64 covers can be large) or storage unavailable —
-    // drop the cache and carry on; the app just refetches next load.
-    try {
-      window.localStorage.removeItem(CACHE_KEY);
-    } catch {
-      /* ignore */
-    }
     console.warn('[ZoteroClient] Could not persist library cache', error);
   }
 }
 
 /**
- * Load items (with covers) and collections, using a localStorage cache
+ * Load items (with covers) and collections, using an IndexedDB cache
  * validated against the library's Last-Modified-Version. When the library
  * has not changed since the last visit, this costs a single API request.
+ *
+ * Pass `onPartial` to receive the items and collections as soon as their
+ * metadata arrives, before cover extraction finishes — lets the UI render
+ * the grid immediately while covers stream in.
  */
-export async function loadLibrary() {
-  const cached = readLibraryCache();
+export async function loadLibrary({ onPartial } = {}) {
+  const cached = await readLibraryCache();
 
   let currentVersion = null;
   try {
@@ -613,6 +726,14 @@ export async function loadLibrary() {
     fetchTopLevelItems(),
     fetchCollections().catch(() => []),
   ]);
+
+  if (onPartial) {
+    try {
+      onPartial({ items, collections });
+    } catch (error) {
+      console.warn('[ZoteroClient] onPartial callback failed', error);
+    }
+  }
 
   const itemsWithCovers = await attachCoverImages(items);
 

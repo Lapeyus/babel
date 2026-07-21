@@ -937,19 +937,13 @@ async function bootstrap() {
   `;
   startBabelLoading();
 
-  try {
-    const { items, collections, fromCache } = await loadLibrary();
-    if (fromCache) {
-      console.log('[Babel] Library loaded from local cache (library unchanged).');
-    }
-
+  const applyLibrary = (items, collections) => {
     state.items = items;
     state.collections = collections;
 
     // Set default collection if defined
     if (DEFAULT_COLLECTION_ID) {
-      // Create a map for faster lookup
-      const collectionKeys = new Set(collections.map(c => c.key));
+      const collectionKeys = new Set(collections.map((c) => c.key));
       if (collectionKeys.has(DEFAULT_COLLECTION_ID)) {
         state.filters.collection = DEFAULT_COLLECTION_ID;
       }
@@ -957,6 +951,20 @@ async function bootstrap() {
 
     populateCollectionFilter(collections);
     applyFilters();
+  };
+
+  try {
+    const { items, collections, fromCache } = await loadLibrary({
+      // Render the grid as soon as item metadata arrives; covers (which can
+      // be tens of MB of embedded images) stream in with a second render.
+      onPartial: ({ items: partialItems, collections: partialCollections }) =>
+        applyLibrary(partialItems, partialCollections),
+    });
+    if (fromCache) {
+      console.log('[Babel] Library loaded from local cache (library unchanged).');
+    }
+
+    applyLibrary(items, collections);
   } catch (error) {
     console.error(error);
     showToast(error.message || 'Failed to load Zotero items.');
