@@ -171,6 +171,42 @@ body {
   display: flex;
 }
 
+/* Shimmer placeholder while covers are still downloading in the background */
+.cover-wrapper.cover-pending .cover {
+  display: none;
+}
+
+.cover-wrapper.cover-pending .cover-front::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(
+    100deg,
+    rgba(90, 105, 155, 0.14) 30%,
+    rgba(195, 205, 240, 0.32) 50%,
+    rgba(90, 105, 155, 0.14) 70%
+  );
+  background-size: 200% 100%;
+  animation: cover-shimmer 1.4s ease-in-out infinite;
+}
+
+@keyframes cover-shimmer {
+  0% {
+    background-position: 120% 0;
+  }
+  100% {
+    background-position: -80% 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cover-wrapper.cover-pending .cover-front::after {
+    animation: none;
+    background: rgba(120, 130, 170, 0.18);
+  }
+}
+
 .book-frame {
   width: 88%;
   height: 88%;
@@ -302,6 +338,39 @@ body {
 .library-stats .stats-chip strong {
   font-weight: 600;
   font-feature-settings: 'tnum';
+}
+
+.library-stats .stats-chip-loading {
+  background: rgba(233, 178, 42, 0.16);
+  color: #6b5310;
+  font-style: italic;
+}
+
+.library-stats .stats-chip-loading::before {
+  content: '';
+  width: 0.55rem;
+  height: 0.55rem;
+  border-radius: 50%;
+  background: #d09a1c;
+  animation: chip-pulse 1.1s ease-in-out infinite;
+}
+
+@keyframes chip-pulse {
+  0%,
+  100% {
+    opacity: 0.35;
+    transform: scale(0.85);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .library-stats .stats-chip-loading::before {
+    animation: none;
+  }
 }
 
 .babel-loading {

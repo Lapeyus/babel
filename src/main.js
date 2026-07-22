@@ -63,6 +63,9 @@ const state = {
     collection: DEFAULT_COLLECTION_ID || 'all',
   },
   visibleCount: 0,
+  // True while item metadata is already rendered but covers are still
+  // downloading in the background.
+  coversLoading: false,
 };
 
 const detailState = {
@@ -267,14 +270,56 @@ function getOriginalYear(extra) {
   return match ? match[1] : null;
 }
 
+function setCardCover(card, item) {
+  const coverWrapper = card.querySelector('.cover-wrapper');
+  const coverFront = card.querySelector('.cover-front');
+  const coverFallback = card.querySelector('.cover-fallback');
+  let coverImg = card.querySelector('img.cover');
+  if (!coverWrapper || !coverFront || !coverFallback) return;
+
+  const fallbackLetter = (item.title?.trim().charAt(0) || '?').toUpperCase();
+  const showCoverFallback = () => {
+    coverWrapper.classList.remove('cover-pending');
+    coverWrapper.classList.add('no-cover');
+    card.querySelector('img.cover')?.remove();
+    coverFallback.textContent = fallbackLetter;
+  };
+
+  if (item.coverUrl) {
+    if (!coverImg) {
+      coverImg = document.createElement('img');
+      coverImg.className = 'cover';
+      coverFront.insertBefore(coverImg, coverFallback);
+    }
+    coverWrapper.classList.remove('cover-pending', 'no-cover');
+    coverImg.loading = 'lazy';
+    coverImg.decoding = 'async';
+    // If the cover URL turns out to be broken (e.g. Open Library has no
+    // cover for this ISBN, or a stale attachment link), degrade gracefully.
+    coverImg.addEventListener('error', showCoverFallback, { once: true });
+    coverImg.src = item.coverUrl;
+    coverImg.alt = `Cover of ${item.title}`;
+    coverFallback.textContent = '';
+  } else if (state.coversLoading) {
+    // Covers are still downloading: show a shimmer placeholder instead of
+    // pretending the book has no cover.
+    coverWrapper.classList.add('cover-pending');
+    coverWrapper.classList.remove('no-cover');
+    coverFallback.textContent = '';
+  } else {
+    showCoverFallback();
+  }
+}
+
 function createCard(item) {
   const fragment = itemTemplate.content.cloneNode(true);
+  const card = fragment.querySelector('.item-card');
   const titleButton = fragment.querySelector('.title-link');
   const creatorEl = fragment.querySelector('.creator');
   const coverWrapper = fragment.querySelector('.cover-wrapper');
-  const coverImg = fragment.querySelector('.cover');
-  const coverFallback = fragment.querySelector('.cover-fallback');
   const abstractEl = fragment.querySelector('.cover-abstract');
+
+  card.dataset.key = item.key;
 
   const originalYear = getOriginalYear(item.extra);
   const titleText = item.title || 'Untitled';
@@ -293,31 +338,7 @@ function createCard(item) {
   const tagsText = tags.map(t => t.tag).join(', ');
   abstractEl.textContent = tagsText || 'No tags available.';
 
-  const fallbackLetter = (item.title?.trim().charAt(0) || '?').toUpperCase();
-  const showCoverFallback = () => {
-    coverWrapper.classList.add('no-cover');
-    if (coverImg?.isConnected) {
-      coverImg.remove();
-    }
-    coverFallback.textContent = fallbackLetter;
-  };
-
-  if (item.coverUrl) {
-    coverImg.loading = 'lazy';
-    coverImg.decoding = 'async';
-    // If the cover URL turns out to be broken (e.g. Open Library has no
-    // cover for this ISBN, or a stale attachment link), degrade gracefully.
-    coverImg.addEventListener('error', showCoverFallback, { once: true });
-    coverImg.src = item.coverUrl;
-    coverImg.alt = `Cover of ${item.title}`;
-    coverFallback.textContent = '';
-    coverWrapper.classList.remove('no-cover');
-  } else {
-    if (coverImg) {
-      coverImg.remove();
-    }
-    showCoverFallback();
-  }
+  setCardCover(card, item);
 
   const toggleFlip = () => {
     const flipped = coverWrapper.classList.toggle('is-flipped');
@@ -399,6 +420,14 @@ function updateLibraryStats() {
   countsWrapper.appendChild(
     createStatsChip('total en colección', collectionTotal)
   );
+
+  if (state.coversLoading) {
+    const loadingChip = document.createElement('span');
+    loadingChip.className = 'stats-chip stats-chip-loading';
+    loadingChip.textContent = 'cargando portadas…';
+    countsWrapper.appendChild(loadingChip);
+  }
+
   statsEl.appendChild(countsWrapper);
 }
 
@@ -872,7 +901,7 @@ function closeDetail() {
   }
 }
 
-function applyFilters() {
+function computeFiltered() {
   const { q, collection } = state.filters;
   const query = q.trim().toLowerCase();
 
@@ -894,8 +923,22 @@ function applyFilters() {
     });
   }
 
-  state.filtered = filtered;
-  renderItems(filtered);
+  return filtered;
+}
+
+function applyFilters() {
+  state.filtered = computeFiltered();
+  renderItems(state.filtered);
+}
+
+// Swap covers into the already-rendered cards without rebuilding the grid,
+// so the user keeps their scroll position when covers finish downloading.
+function refreshCardCovers() {
+  const byKey = new Map(state.items.map((item) => [item.key, item]));
+  grid.querySelectorAll('.item-card[data-key]').forEach((card) => {
+    const item = byKey.get(card.dataset.key);
+    if (item) setCardCover(card, item);
+  });
 }
 
 function populateCollectionFilter(collections) {
@@ -955,19 +998,37 @@ async function bootstrap() {
     applyFilters();
   };
 
+  let renderedPartial = false;
   try {
     const { items, collections, fromCache } = await loadLibrary({
       // Render the grid as soon as item metadata arrives; covers (which can
-      // be tens of MB of embedded images) stream in with a second render.
-      onPartial: ({ items: partialItems, collections: partialCollections }) =>
-        applyLibrary(partialItems, partialCollections),
+      // be tens of MB of embedded images) keep downloading in the background
+      // with shimmer placeholders and a status chip until they land.
+      onPartial: ({ items: partialItems, collections: partialCollections }) => {
+        state.coversLoading = true;
+        renderedPartial = true;
+        applyLibrary(partialItems, partialCollections);
+      },
     });
     if (fromCache) {
       console.log('[Babel] Library loaded from local cache (library unchanged).');
     }
 
-    applyLibrary(items, collections);
+    state.coversLoading = false;
+
+    if (renderedPartial) {
+      // Covers arrived: update the cards in place instead of re-rendering,
+      // so the user's scroll position and interactions are preserved.
+      state.items = items;
+      state.collections = collections;
+      state.filtered = computeFiltered();
+      refreshCardCovers();
+      updateLibraryStats();
+    } else {
+      applyLibrary(items, collections);
+    }
   } catch (error) {
+    state.coversLoading = false;
     console.error(error);
     showToast(error.message || 'Failed to load Zotero items.');
     renderEmptyState();
